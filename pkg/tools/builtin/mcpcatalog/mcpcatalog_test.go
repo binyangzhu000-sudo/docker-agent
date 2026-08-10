@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -989,11 +990,18 @@ func TestHandleEnable_OAuthDCR_ChallengePRMScopeFallback(t *testing.T) {
 func setupFakeCatalogBrowserOpener(t *testing.T) string {
 	t.Helper()
 
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture shims the open/xdg-open binaries via a PATH-relative #!/bin/sh script, " +
+			"but pkg/browser launches rundll32 on Windows, which the shim cannot intercept; " +
+			"the real launcher would run, no URL would ever be captured, and the polling read " +
+			"would time out while holding interactiveOAuthMu")
+	}
+
 	dir := t.TempDir()
 	captureFile := filepath.Join(dir, "captured-url")
 	script := []byte("#!/bin/sh\nprintf '%s' \"$1\" > " + captureFile + "\n")
-	// browser.Open picks the launcher by runtime.GOOS (open/xdg-open/rundll32);
-	// shimming every name keeps this test host-independent.
+	// This PATH shim only covers the POSIX open/xdg-open launchers pkg/browser
+	// uses on macOS/Linux; Windows uses rundll32 and is skipped above.
 	for _, name := range []string{"open", "xdg-open"} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), script, 0o755))
 	}
