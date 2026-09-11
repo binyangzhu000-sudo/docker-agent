@@ -35,6 +35,16 @@ func TestChatCompletions_MergesConsecutiveSystemMessages(t *testing.T) {
 	})
 }
 
+func TestDaoxe_MergesConsecutiveSystemMessages(t *testing.T) {
+	t.Parallel()
+
+	assertMergesConsecutiveMessages(t, &latest.ModelConfig{
+		Provider: "daoxe",
+		Model:    "gpt-4o",
+		TokenKey: "MY_TOKEN",
+	})
+}
+
 func TestBaseten_MergesConsecutiveSystemMessages(t *testing.T) {
 	t.Parallel()
 
@@ -159,6 +169,7 @@ func TestShouldMergeConsecutiveMessages_Gating(t *testing.T) {
 		{"open-model host alias openrouter", &latest.ModelConfig{Provider: "openrouter", Model: "qwen/qwen3.6-35b"}, true},
 		{"open-model host alias nebius", &latest.ModelConfig{Provider: "nebius", Model: "Qwen/Qwen3"}, true},
 		{"baseten", &latest.ModelConfig{Provider: "baseten", Model: "zai-org/GLM-5.2"}, true},
+		{"daoxe, no base_url", &latest.ModelConfig{Provider: "daoxe", Model: "claude-sonnet-4-6"}, true},
 		{"ovhcloud", &latest.ModelConfig{Provider: "ovhcloud", Model: "Qwen3.5-397B-A17B"}, true},
 		{"open-model host alias cerebras", &latest.ModelConfig{Provider: "cerebras", Model: "qwen-3-coder-480b"}, true},
 		{"open-model host fireworks", &latest.ModelConfig{Provider: "fireworks", Model: "accounts/fireworks/models/kimi-k3"}, true},

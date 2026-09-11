@@ -53,6 +53,7 @@ Use this table to find a built-in provider's config key and authentication metho
 | NVIDIA NIM     | `nvidia`         | `NVIDIA_API_KEY`                    |
 | MiniMax        | `minimax`        | `MINIMAX_API_KEY`                   |
 | Baseten        | `baseten`        | `BASETEN_API_KEY`                   |
+| DaoXE          | `daoxe`          | `DAOXE_API_KEY`                     |
 | OVHcloud       | `ovhcloud`       | `OVH_AI_ENDPOINTS_ACCESS_TOKEN`     |
 | Groq           | `groq`           | `GROQ_API_KEY`                      |
 | Fireworks AI   | `fireworks-ai`      | `FIREWORKS_API_KEY`                 |
