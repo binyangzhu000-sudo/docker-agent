@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tui/animation"
 	tuiimage "github.com/docker/docker-agent/pkg/tui/image"
+	msgtypes "github.com/docker/docker-agent/pkg/tui/messages"
 	"github.com/docker/docker-agent/pkg/tui/service"
 	"github.com/docker/docker-agent/pkg/tui/types"
 )
@@ -175,4 +176,28 @@ func TestUpdateAssistantMedia_StaleResultIsNoOp(t *testing.T) {
 
 	assert.Nil(t, cmd)
 	assert.Equal(t, "placeholder", m.messages[0].AssistantMedia[0].Fallback)
+}
+
+func TestImageRenderingChangeInvalidatesTranscriptCache(t *testing.T) {
+	tuiimage.SetRenderingEnabled(false)
+	t.Cleanup(func() { tuiimage.SetRenderingEnabled(true) })
+	m := newMediaTestModel(t)
+	inline := generatedMediaTestImage(t, "cat.png")
+	m.AppendToLastMessage("root", "Here is your cat:")
+	m.AppendAssistantMedia("root", []types.AssistantMedia{{Image: &inline, Fallback: "saved to: /tmp/cat.png"}})
+	assert.NotContains(t, m.View(), "cagent-image")
+	for _, enabled := range []bool{true, false, true} {
+		before := m.VisualGeneration()
+		tuiimage.SetRenderingEnabled(enabled)
+		_, cmd := m.Update(msgtypes.ImageRenderingChangedMsg{})
+		assert.Nil(t, cmd)
+		assert.Greater(t, m.VisualGeneration(), before)
+		view := m.View()
+		if enabled {
+			assert.Contains(t, view, "cagent-image")
+		} else {
+			assert.NotContains(t, view, "cagent-image")
+			assert.Contains(t, ansi.Strip(view), "saved to:")
+		}
+	}
 }

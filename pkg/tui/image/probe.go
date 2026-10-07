@@ -17,10 +17,33 @@ const (
 	kittyProbeOK      = "\x1b_Gi=" + kittyProbeID + ";OK\x1b\\"
 )
 
-// SupportsKittyGraphics probes a terminal for Kitty graphics support. It must
-// run before the TUI takes ownership of the terminal input stream.
+func kittyProbeResponse(response []byte) (supported, answered bool) {
+	prefix := []byte("\x1b_Gi=" + kittyProbeID + ";")
+	for {
+		start := bytes.Index(response, prefix)
+		if start < 0 {
+			return false, false
+		}
+		response = response[start+len(prefix):]
+		end := bytes.Index(response, []byte("\x1b\\"))
+		if end < 0 {
+			return false, false
+		}
+		if end > 0 {
+			return bytes.Equal(response[:end], []byte("OK")), true
+		}
+		response = response[end+2:]
+	}
+}
+
+// canProbeKittyGraphics reports whether both files are terminals.
+func canProbeKittyGraphics(in, out *os.File) bool {
+	return in != nil && out != nil && isatty.IsTerminal(in.Fd()) && isatty.IsTerminal(out.Fd())
+}
+
+// SupportsKittyGraphics requires exclusive ownership of terminal input.
 func SupportsKittyGraphics(in, out *os.File) bool {
-	if in == nil || out == nil || !isatty.IsTerminal(in.Fd()) || !isatty.IsTerminal(out.Fd()) {
+	if !canProbeKittyGraphics(in, out) {
 		return false
 	}
 
@@ -48,8 +71,8 @@ func SupportsKittyGraphics(in, out *os.File) bool {
 		n, err := reader.Read(buf)
 		if n > 0 {
 			response = append(response, buf[:n]...)
-			if bytes.Contains(response, []byte(kittyProbeOK)) {
-				return true
+			if supported, answered := kittyProbeResponse(response); answered {
+				return supported
 			}
 			if len(response) > 1024 {
 				response = response[len(response)-512:]

@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker-agent/pkg/tui/animation"
 	"github.com/docker/docker-agent/pkg/tui/components/markdown"
 	tuiimage "github.com/docker/docker-agent/pkg/tui/image"
+	"github.com/docker/docker-agent/pkg/tui/messages"
 	"github.com/docker/docker-agent/pkg/tui/types"
 )
 
@@ -631,4 +632,28 @@ func TestAssistantMediaUnrenderableImageShowsFallback(t *testing.T) {
 	assert.Contains(t, plain, `Generated image "cat.png" is unavailable.`)
 	assert.Less(t, strings.Index(plain, "Result:"), strings.Index(plain, "unavailable"),
 		"text must keep preceding the failed media item")
+}
+
+func TestImageRenderingChangeInvalidatesMessageCache(t *testing.T) {
+	tuiimage.SetRenderingEnabled(false)
+	t.Cleanup(func() { tuiimage.SetRenderingEnabled(true) })
+	inline := testInlineImage(t, "generated.png")
+	msg := types.Agent(types.MessageTypeAssistant, "root", "Here is your cat:")
+	msg.AssistantMedia = []types.AssistantMedia{{Image: &inline, Fallback: "saved to: /tmp/cat.png"}}
+	mv := New(animation.NewRuntime(), msg, nil)
+	mv.SetSize(80, 0)
+	assert.NotContains(t, mv.View(), "cagent-image")
+	for _, enabled := range []bool{true, false, true} {
+		tuiimage.SetRenderingEnabled(enabled)
+		_, cmd := mv.Update(messages.ImageRenderingChangedMsg{})
+		assert.Nil(t, cmd, "capability changes must not reload images")
+		view := mv.View()
+		if enabled {
+			assert.Contains(t, view, "cagent-image")
+			assert.NotContains(t, ansi.Strip(view), "saved to:")
+		} else {
+			assert.NotContains(t, view, "cagent-image")
+			assert.Contains(t, ansi.Strip(view), "saved to:")
+		}
+	}
 }

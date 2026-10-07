@@ -717,6 +717,12 @@ func (p *chatPage) update(msg tea.Msg) (layout.Model, tea.Cmd) {
 	case generatedMediaResolvedMsg:
 		return p, p.messages.UpdateAssistantMedia(msg.media)
 
+	case msgtypes.ImageRenderingChangedMsg:
+		p.chatPaneCache = chatPaneCache{}
+		model, cmd := p.messages.Update(msg)
+		p.messages = model.(messages.Model)
+		return p, cmd
+
 	case msgtypes.ThemeChangedMsg:
 		p.chatPaneCache = chatPaneCache{}
 		// Theme changed - forward to all child components to invalidate caches

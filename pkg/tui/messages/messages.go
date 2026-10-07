@@ -16,3 +16,6 @@ package messages
 
 // ToggleDiffViewMsg invalidates views after changing the diff layout.
 type ToggleDiffViewMsg struct{}
+
+// ImageRenderingChangedMsg invalidates cached image rows after capability or preference changes.
+type ImageRenderingChangedMsg struct{}

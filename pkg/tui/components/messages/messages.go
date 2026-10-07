@@ -397,6 +397,9 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		m.invalidateAllItems()
 		return m, nil
 
+	case messages.ImageRenderingChangedMsg:
+		m.invalidateAllItems()
+
 	case messages.ThemeChangedMsg:
 		// Theme changed - invalidate all render caches
 		m.invalidateAllItems()

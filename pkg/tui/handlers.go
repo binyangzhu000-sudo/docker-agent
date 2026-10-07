@@ -27,7 +27,6 @@ import (
 	"github.com/docker/docker-agent/pkg/tui/components/tool/editfile"
 	"github.com/docker/docker-agent/pkg/tui/core"
 	"github.com/docker/docker-agent/pkg/tui/dialog"
-	tuiimage "github.com/docker/docker-agent/pkg/tui/image"
 	"github.com/docker/docker-agent/pkg/tui/messages"
 	"github.com/docker/docker-agent/pkg/tui/page/chat"
 	"github.com/docker/docker-agent/pkg/tui/service"
@@ -960,9 +959,12 @@ func (m *appModel) handleApplySettings(msg messages.ApplySettingsMsg) (tea.Model
 	}
 	m.activeTab.sessionState.SetExpandThinking(preferences.ExpandThinking)
 	m.activeTab.sessionState.SetHideToolResults(preferences.HideToolResults)
+	imagesNeedRestart := false
 	if m.imageWriter != nil {
+		imagesNeedRestart = preferences.RenderImages && !m.imageWriter.Enabled() && !m.imageWriter.Supported()
+		before := m.imageWriter.RenderingEnabled()
 		m.imageWriter.SetEnabled(preferences.RenderImages)
-		tuiimage.SetRenderingEnabled(m.imageWriter.RenderingEnabled())
+		cmd = tea.Batch(cmd, m.syncImageRendering(before))
 	}
 	m.tabBar.SetMaxTitleLength(preferences.TabTitleMaxLength)
 	cmd = tea.Batch(cmd, m.updateChatCmd(messages.SessionToggleChangedMsg{}), m.resizeAll())
@@ -970,6 +972,9 @@ func (m *appModel) handleApplySettings(msg messages.ApplySettingsMsg) (tea.Model
 	if err := savePreferences(preferences); err != nil {
 		slog.Warn("Failed to save settings to user config", "error", err)
 		return model, tea.Batch(cmd, notification.WarningCmd("Settings applied but could not be saved"))
+	}
+	if imagesNeedRestart {
+		return model, tea.Batch(cmd, notification.InfoCmd("Settings updated. Restart to check terminal image support."))
 	}
 	return model, tea.Batch(cmd, notification.SuccessCmd("Settings updated"))
 }
