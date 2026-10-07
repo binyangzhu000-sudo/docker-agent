@@ -61,7 +61,9 @@ func createJudge(ctx context.Context, cfg Config, runConfig *config.RuntimeConfi
 		if err != nil {
 			return nil, fmt.Errorf("resolving evaluator judge: %w", err)
 		}
-		client, err := evaluatorprovider.New(ctx, resolved, runConfig.EnvProvider())
+		opts := []options.Opt{options.WithGateway(runConfig.ModelsGateway), options.WithEncryptedConfig(runConfig.EncryptedConfig)}
+		opts = append(opts, runConfig.EvaluatorOptions...)
+		client, err := evaluatorprovider.New(ctx, resolved, runConfig.EnvProvider(), opts...)
 		if err != nil {
 			return nil, fmt.Errorf("creating evaluator judge: %w", err)
 		}

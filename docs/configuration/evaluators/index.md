@@ -1,7 +1,7 @@
 ---
 title: "Evaluators"
 description: "Reusable provider-backed assessments, separate from chat models and decision policies."
-keywords: docker agent, evaluators, typesafe, jev, classification, tool guards
+keywords: docker agent, evaluators, typesafe, jev, openai, decisions, gateway, classification, tool guards
 weight: 65
 canonical: https://docs.docker.com/ai/docker-agent/configuration/evaluators/
 ---
@@ -11,7 +11,8 @@ not generate chat messages or execute tools. Consumers decide what an assessment
 means: an evaluator reports a probability; a tool guard decides whether to ask
 for approval.
 
-The first provider is [TypeSafe's Jev](https://docs.typesafe.ai/). Named evaluators
+Providers include [TypeSafe's Jev](https://docs.typesafe.ai/) and
+[OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions). Named evaluators
 are shared across agents in a loaded team. Imported agents keep their source
 configuration’s evaluator bindings, even when the parent uses the same names. Configurations using this feature
 require version `16` or an omitted version (latest).
@@ -30,15 +31,16 @@ evaluators:
 
 | Field | Meaning |
 | --- | --- |
-| `provider` | Required backend type (`typesafe`) or named entry in `providers`. |
-| `model` | Required provider model ID, such as `jev-latest`. Pin a versioned ID for reproducible evaluations. |
+| `provider` | Required backend type (`typesafe` or `openai`) or named entry in `providers`. |
+| `model` | Required provider model ID, such as `jev-latest` or `gpt-6-luna`. Pin a versioned ID for reproducible evaluations. |
 | `type` | Required: `boolean`, `choice`, or `score`. |
 | `instructions` | Required assessment question or rubric instructions. |
 | `choices` | For `choice`: map of 2–255 outcome keys to descriptions. |
 | `levels` | For `score`: 2–10 descriptions ordered from lowest to highest. |
-| `base_url` | Optional API base URL. TypeSafe defaults to `https://api.typesafe.ai`; `/v1/systemone` is appended. |
+| `base_url` | Optional API base URL. TypeSafe defaults to `https://api.typesafe.ai` with `/v1/systemone`; OpenAI defaults to `https://api.openai.com/v1` with `/decisions`. |
 | `endpoint` | Optional exact HTTP(S) request URL. Overrides `base_url`, including a named provider's default; no path is appended. Credentials, query strings, and fragments are not allowed. |
-| `token_key` | Environment variable containing the API key; defaults to `TYPESAFE_API_KEY`. |
+| `token_key` | Environment variable containing the API key; defaults to `TYPESAFE_API_KEY` for TypeSafe or `OPENAI_API_KEY` for OpenAI. Used only for direct calls. |
+| `bypass_models_gateway` | Connect directly even when a gateway is configured; defaults to `false`. |
 | `timeout` | Request timeout as a duration such as `3s`; defaults to `10s`. |
 | `cost` | Optional USD prices per million tokens: `input` and `output`. Overrides automatic pricing; `cost: {}` explicitly declares free evaluations. |
 
@@ -65,7 +67,58 @@ evaluators:
 Evaluator-level `base_url` and `token_key` override provider defaults. Chat-only
 provider settings do not apply; `api_type` and `auth` are rejected for evaluator
 providers. Credentials come from the normal environment provider, including
-configured secret sources. The models gateway does not supply evaluator credentials.
+configured secret sources when calling directly.
+
+## Gateway routing
+
+A configured models gateway (`--models-gateway`, `DOCKER_AGENT_MODELS_GATEWAY`,
+or user configuration) handles **all evaluator calls**: tool guards, agent routing,
+and evaluation judges, including imported agents. No evaluator API keys are needed
+on the client for gateway-routed calls. Trusted Docker gateways use the Docker
+login token, refreshed per request; a rejected token can be refreshed and retried
+once. Docker tokens and encrypted agent configurations are never forwarded to
+third-party gateways. Requests carry the current session and install identifiers,
+provider/model metadata, and gateway query parameters through the shared transport.
+
+The gateway must support the native `POST /v1/systemone` (TypeSafe) or
+`POST /v1/decisions` (OpenAI) protocol and have its own upstream credentials.
+The Docker AI gateway additionally requires the corresponding `typesafe` or
+`openai-decisions` capability to be enabled, with applicable model/prompt policies.
+A gateway rejection is an error; clients never silently fall back to a direct call.
+Without an upstream gateway, recording captures the built-in provider endpoints;
+private evaluator origins stay direct rather than failing because the recorder
+does not recognize them. Replay (`--fake`) always stays offline, including
+bypassed and private evaluators. Missing cassette interactions fail rather than
+connecting to a provider, and replay does not look up evaluator API keys.
+
+Custom `base_url` and exact `endpoint` settings do **not** implicitly bypass the
+gateway. Their upstream target/path is forwarded through it, so the gateway must
+support that destination. For a local evaluator or a private deployment not served
+by the gateway, set `bypass_models_gateway: true`; its API key is then required
+and is included in credential preflight and sandbox forwarding.
+
+## OpenAI Decisions
+
+Use the same types, policies, and hooks with `provider: openai`:
+
+```yaml
+evaluators:
+  credential_exposure:
+    provider: openai
+    model: gpt-6-luna
+    type: boolean
+    instructions: Does this operation disclose credentials outside a trusted boundary?
+```
+
+Boolean questions use `predicate`, choices use a deterministic array of string
+values/descriptions, and scores use zero-indexed levels. String state is sent as
+text; objects and arrays are serialized to JSON text in `input`, retaining the
+consumer's evidence structure without treating it as native conversation messages.
+Answers are normalized to the same evaluator result types as TypeSafe. Refusals,
+missing answers, invalid distributions, and mismatched types are errors, not safe
+or zero-valued assessments.
+
+See the [OpenAI evaluator example](https://github.com/docker/docker-agent/blob/main/examples/evaluators-openai.yaml).
 
 In HCL, use `evaluator "name" { ... }` for a top-level named evaluator.
 
@@ -134,7 +187,7 @@ See the [Laya tool-guard example](https://github.com/docker/docker-agent/blob/ma
 ## Result types
 
 - **Boolean:** `probability` is the probability the statement is true. Mapped to
-  TypeSafe's `noul` primitive; no confidence value is invented.
+  TypeSafe's `noul` or OpenAI's `predicate` primitive; no confidence value is invented.
 - **Choice:** `choice` identifies a highest-probability outcome, and
   `probabilities` contains the distribution across configured choices.
 - **Score:** `score` is the expected zero-based level index. For three levels its
@@ -147,8 +200,8 @@ or invalid required answer fields are errors, not zero-valued assessments.
 
 The Go API is `evaluator.Evaluator.Evaluate(ctx, state)`. State can be a string,
 JSON object, or array. Loaded teams expose named clients through `Team.Evaluator`.
-The initial implementation sends one question per evaluation and does not retry
-failed requests automatically.
+Each evaluation sends one question. Provider failures are not automatically
+retried; gateway authentication may be refreshed and retried once on HTTP 401.
 
 ## Pricing and accounting
 
@@ -156,7 +209,12 @@ For the official TypeSafe endpoint, the returned model ID `jev-1.13.0` has
 [documented pricing](https://docs.typesafe.ai/models) of **$0.042 per million input
 tokens**, with output tokens free. Automatic pricing uses that exact returned ID,
 not the requested alias: `jev-latest` is priced only if it resolves to a known
-version. Unknown or future versions and custom endpoints have no assumed price.
+version. OpenAI Decisions `gpt-6-luna` uses the published base input rate of
+**$0.10 per million tokens**, with output free; it never uses chat pricing. These
+rates also apply when the official upstream is reached through a gateway. Unknown
+or future models and custom endpoints have no assumed price. Regional processing
+and long-context modifiers may increase the OpenAI charge; use a `cost` override
+for applicable rates.
 
 Set an evaluator-level override for private deployments, negotiated rates, or
 models without built-in pricing:

@@ -14,13 +14,14 @@ import (
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/gateway"
 	"github.com/docker/docker-agent/pkg/model/provider"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 )
 
 // gatherMissingEnvVars finds out which environment variables are required by the models and tools.
 // It returns the missing variables, whether any of them is a model-provider
 // credential (as opposed to a tool secret), and any non-fatal error
 // encountered during tool discovery.
-func gatherMissingEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway string, env environment.Provider) (missing []string, missingModelCreds bool, toolErr error) {
+func gatherMissingEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway string, env environment.Provider, evaluatorOpts ...options.Opt) (missing []string, missingModelCreds bool, toolErr error) {
 	requiredEnv := map[string]bool{}
 	modelEnv := map[string]bool{}
 
@@ -39,8 +40,9 @@ func gatherMissingEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway
 		modelEnv[e] = true
 	}
 
-	// Evaluators dial their own providers, never the models gateway.
-	for _, name := range GatherEnvVarsForEvaluators(cfg) {
+	// The gateway supplies evaluator credentials unless explicitly bypassed.
+	opts := append([]options.Opt{options.WithGateway(modelsGateway)}, evaluatorOpts...)
+	for _, name := range RequiredEvaluatorEnvVars(cfg, opts...) {
 		requiredEnv[name] = true
 	}
 
@@ -345,7 +347,16 @@ func sortedKeys(requiredEnv map[string]bool) []string {
 }
 
 // GatherEnvVarsForEvaluators returns credentials needed by referenced evaluator hooks.
-func GatherEnvVarsForEvaluators(cfg *latest.Config) []string {
+func GatherEnvVarsForEvaluators(cfg *latest.Config, modelsGateway ...string) []string {
+	evaluatorGateway := ""
+	if len(modelsGateway) != 0 {
+		evaluatorGateway = modelsGateway[0]
+	}
+	return RequiredEvaluatorEnvVars(cfg, options.WithGateway(evaluatorGateway))
+}
+
+// RequiredEvaluatorEnvVars mirrors the effective evaluator connection options.
+func RequiredEvaluatorEnvVars(cfg *latest.Config, opts ...options.Opt) []string {
 	required := map[string]bool{}
 	for _, a := range cfg.Agents {
 		for _, matchers := range a.Hooks.Events() {
@@ -359,7 +370,11 @@ func GatherEnvVarsForEvaluators(cfg *latest.Config) []string {
 						continue
 					}
 					resolved, err := def.Resolve(cfg.Providers)
-					if err == nil {
+					if err != nil {
+						continue
+					}
+					connection := options.ForEvaluator(resolved, opts...)
+					if connection.Gateway() == "" && connection.TokenSource() == nil {
 						required[resolved.TokenKey] = true
 					}
 				}

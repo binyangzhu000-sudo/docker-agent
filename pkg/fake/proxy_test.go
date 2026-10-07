@@ -518,3 +518,26 @@ func TestGatedStreamCopy(t *testing.T) {
 		}
 	}
 }
+
+func TestEvaluatorMatcherPreservesEvidence(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{"/v1/systemone", "/v1/decisions", "/development/predict"} {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+			const recorded = `{"model":"model","questions":{"evaluation":{"instructions":"Assess."}},"state":{"integer":9007199254740993,"id":"call_123"}}`
+			for _, tt := range []struct {
+				body  string
+				match bool
+			}{
+				{`{"state":{"integer":9007199254740993,"id":"call_123"},"questions":{"evaluation":{"instructions":"Assess."}},"model":"model"}`, true},
+				{`{"state":{"integer":9007199254740992,"id":"call_123"},"questions":{"evaluation":{"instructions":"Assess."}},"model":"model"}`, false},
+				{`{"state":{"integer":9007199254740993,"id":"call_456"},"questions":{"evaluation":{"instructions":"Assess."}},"model":"model"}`, false},
+			} {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://private.example"+path, strings.NewReader(tt.body))
+				req.Header.Set("X-Cagent-Evaluator", "1")
+				interaction := cassette.Request{Method: http.MethodPost, URL: req.URL.String(), Body: recorded}
+				assert.Equal(t, tt.match, DefaultMatcher(nil)(req, interaction))
+			}
+		})
+	}
+}

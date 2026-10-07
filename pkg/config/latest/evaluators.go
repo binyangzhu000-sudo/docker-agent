@@ -11,17 +11,18 @@ import (
 
 // EvaluatorConfig defines a reusable assessment, independent of its consumers' policies.
 type EvaluatorConfig struct {
-	Provider     string            `json:"provider"`
-	Model        string            `json:"model"`
-	BaseURL      string            `json:"base_url,omitempty"`
-	Endpoint     string            `json:"endpoint,omitempty"`
-	TokenKey     string            `json:"token_key,omitempty"`
-	Type         string            `json:"type"`
-	Instructions string            `json:"instructions"`
-	Choices      map[string]string `json:"choices,omitempty"`
-	Levels       []string          `json:"levels,omitempty"`
-	Timeout      Duration          `json:"timeout,omitzero"`
-	Cost         *CostConfig       `json:"cost,omitempty"`
+	Provider            string            `json:"provider"`
+	Model               string            `json:"model"`
+	BaseURL             string            `json:"base_url,omitempty"`
+	Endpoint            string            `json:"endpoint,omitempty"`
+	TokenKey            string            `json:"token_key,omitempty"`
+	Type                string            `json:"type"`
+	Instructions        string            `json:"instructions"`
+	Choices             map[string]string `json:"choices,omitempty"`
+	Levels              []string          `json:"levels,omitempty"`
+	Timeout             Duration          `json:"timeout,omitzero"`
+	Cost                *CostConfig       `json:"cost,omitempty"`
+	BypassModelsGateway bool              `json:"bypass_models_gateway,omitempty"`
 }
 
 // Validate checks an evaluator definition before provider resolution.
@@ -96,10 +97,14 @@ func (e EvaluatorConfig) Resolve(providers map[string]ProviderConfig) (Evaluator
 		e.BaseURL = cmp.Or(e.BaseURL, p.BaseURL)
 		e.TokenKey = cmp.Or(e.TokenKey, p.TokenKey)
 	}
-	if e.Provider != "typesafe" {
+	switch e.Provider {
+	case "typesafe":
+		e.TokenKey = cmp.Or(e.TokenKey, "TYPESAFE_API_KEY")
+	case "openai":
+		e.TokenKey = cmp.Or(e.TokenKey, "OPENAI_API_KEY")
+	default:
 		return e, fmt.Errorf("unsupported evaluator provider %q", e.Provider)
 	}
-	e.TokenKey = cmp.Or(e.TokenKey, "TYPESAFE_API_KEY")
 	return e, e.Validate()
 }
 

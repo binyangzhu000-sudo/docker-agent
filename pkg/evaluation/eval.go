@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/config/sources"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/session"
 )
 
@@ -49,6 +51,12 @@ type Runner struct {
 
 // newRunner creates a new evaluation runner.
 func newRunner(agentSource config.Source, runConfig *config.RuntimeConfig, cfg Config) *Runner {
+	if runConfig != nil && runConfig.EncryptedConfig == "" {
+		if source, ok := agentSource.(config.EncryptedConfigSource); ok && source.EncryptedConfig() != "" {
+			runConfig = runConfig.Clone()
+			runConfig.EncryptedConfig = source.EncryptedConfig()
+		}
+	}
 	return &Runner{
 		Config:      cfg,
 		agentSource: agentSource,
@@ -449,6 +457,20 @@ func (r *Runner) runDockerAgentInContainer(ctx context.Context, imageID string, 
 		}
 	} else {
 		for _, name := range config.ProviderAPIKeyEnvVars() {
+			if val, ok := r.runConfig.EnvProvider().Get(ctx, name); ok && val != "" {
+				addEnv(name, val)
+			}
+		}
+	}
+
+	if r.agentConfig != nil {
+		cfg := *r.agentConfig
+		cfg.Agents = slices.Clone(cfg.Agents)
+		cfg.Providers = maps.Clone(cfg.Providers)
+		config.MergeGlobalProviders(&cfg, r.runConfig.Providers)
+		config.MergeAgentHooks(&cfg, config.MergeHooks(r.runConfig.GlobalHooks, r.runConfig.CLIHooks()))
+		evaluatorOpts := append([]options.Opt{options.WithGateway(r.runConfig.ModelsGateway)}, r.runConfig.EvaluatorOptions...)
+		for _, name := range config.RequiredEvaluatorEnvVars(&cfg, evaluatorOpts...) {
 			if val, ok := r.runConfig.EnvProvider().Get(ctx, name); ok && val != "" {
 				addEnv(name, val)
 			}

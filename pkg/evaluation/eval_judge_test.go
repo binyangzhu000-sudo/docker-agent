@@ -17,6 +17,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
 func TestEvaluateWithEvaluatorJudge(t *testing.T) {
@@ -105,6 +106,36 @@ func TestEvaluatorJudgeExampleRequiresJudge(t *testing.T) {
 			require.NotNil(t, run)
 			assert.Contains(t, out.String(), "Validating judge model")
 			assert.NotContains(t, out.String(), "Pre-building")
+		})
+	}
+}
+
+type encryptedJudgeSource struct {
+	config.Source
+
+	encrypted string
+}
+
+func (s encryptedJudgeSource) EncryptedConfig() string { return s.encrypted }
+
+func TestJudgeSourceEncryptedConfig(t *testing.T) {
+	t.Parallel()
+	for _, explicit := range []string{"", "explicit"} {
+		t.Run(explicit, func(t *testing.T) {
+			t.Parallel()
+			rc := &config.RuntimeConfig{
+				Config:                 config.Config{EncryptedConfig: explicit},
+				EnvProviderOverride:    environment.NewNoEnvProvider(),
+				ModelsDevStoreOverride: modelsdev.NewDatabaseStore(modelsdev.EmbeddedSnapshot()),
+			}
+			source := encryptedJudgeSource{Source: config.NewBytesSource("agent.yaml", nil), encrypted: "discovered"}
+			runner := newRunner(source, rc, Config{})
+			want := explicit
+			if want == "" {
+				want = "discovered"
+			}
+			assert.Equal(t, want, runner.runConfig.EncryptedConfig)
+			assert.Equal(t, explicit, rc.EncryptedConfig, "discovery must not mutate caller config")
 		})
 	}
 }

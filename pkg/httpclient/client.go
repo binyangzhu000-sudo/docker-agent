@@ -341,13 +341,22 @@ func injectEncryptedConfigBody(req *http.Request, enc string) error {
 		return fmt.Errorf("read request body: %w", err)
 	}
 
-	var payload map[string]any
+	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		// Restore the original body so the request still goes out unmodified.
 		resetBody(req, raw)
 		return fmt.Errorf("decode JSON body: %w", err)
 	}
-	payload[EncryptedConfigBodyField] = enc
+	if payload == nil {
+		resetBody(req, raw)
+		return nil
+	}
+	encoded, err := json.Marshal(enc)
+	if err != nil {
+		resetBody(req, raw)
+		return fmt.Errorf("encode encrypted config: %w", err)
+	}
+	payload[EncryptedConfigBodyField] = encoded
 
 	rewritten, err := json.Marshal(payload)
 	if err != nil {

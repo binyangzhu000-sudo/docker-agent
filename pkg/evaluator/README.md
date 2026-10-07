@@ -12,7 +12,7 @@ resolved, err := cfg.Resolve(providers)
 if err != nil {
     return err
 }
-client, err := provider.New(ctx, resolved, env)
+client, err := provider.New(ctx, resolved, env, options.WithGateway(gateway))
 if err != nil {
     return err
 }
@@ -38,7 +38,8 @@ The default timeout
 is 10 seconds and includes credential lookup, HTTP transfer, and response reads.
 Requests respect context cancellation. Redirects are never followed, responses
 are limited to 1 MiB, and errors omit credentials, input, and response bodies.
-Requests are not automatically retried.
+Provider failures are not automatically retried; gateway HTTP 401s can refresh
+a rejected Docker token and replay once.
 
 | Config type | TypeSafe question | Criteria | Result |
 | --- | --- | --- | --- |
@@ -57,6 +58,23 @@ contains input and output token counts. Zero-valued probabilities, scores, and
 confidence remain present through pointer fields. Missing or null confidence
 stays `nil`; required probabilities and scores cannot be missing or null.
 
+## OpenAI Decisions and gateways
+
+`provider: openai` posts one native question to `/v1/decisions`, using
+`https://api.openai.com/v1` and `OPENAI_API_KEY` for direct calls. Boolean questions
+use `predicate`; choice values are strings; score indices are zero-based.
+Objects and arrays are encoded as JSON text in `input`. Answers are normalized
+to the same `Result` contract, with refusals and invalid answers rejected.
+
+`New` accepts the shared model `options.Opt` values. `WithGateway` routes both
+protocols, including custom endpoint paths, through the gateway with request-time
+Docker authentication, one 401 refresh retry, session/install metadata, and gateway
+query parameters. `WithEncryptedConfig` forwards config only to trusted gateways;
+`WithHTTPTransportWrapper` applies to direct and gateway calls. The team loader
+and evaluation judge factory pass runtime gateway options automatically.
+`bypass_models_gateway: true` opts an evaluator out, requiring its direct key.
+No provider credentials are requested or leaked on gateway calls.
+
 ## Usage observation and pricing
 
 `Result.Cost` is an estimated USD charge, with `nil` indicating unknown usage or
@@ -65,7 +83,10 @@ limited to the official endpoint and returned model ID `jev-1.13.0`:
 [$0.042/M input tokens, output free](https://docs.typesafe.ai/models). Aliases and
 future versions are not guessed. Set `EvaluatorConfig.Cost` to override pricing,
 including for custom endpoints; an empty cost object explicitly means free.
-Overrides are copied when constructing the client. Cache prices are unused.
+OpenAI Decisions `gpt-6-luna` uses its endpoint-specific base rate of $0.10/M
+input tokens (output free), not chat pricing. Regional/long-context modifiers may
+increase that charge. Official upstream pricing is retained through a gateway;
+custom upstreams require overrides. Overrides are copied when constructing the client. Cache prices are unused.
 
 Observe request accounting independently of answer validity:
 

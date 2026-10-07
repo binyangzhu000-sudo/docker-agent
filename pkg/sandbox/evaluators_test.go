@@ -39,4 +39,10 @@ agents:
 	}), nil, rc)
 	assert.Equal(t, []string{"-e", "CORPORATE_KEY"}, flags)
 	assert.Equal(t, []string{"CORPORATE_KEY=evaluator-key"}, values)
+	rc.ModelsGateway = "http://localhost:7777"
+	flags, values = EnvForAgent(t.Context(), path, environment.NewMapEnvProvider(map[string]string{
+		"OPENAI_API_KEY": "chat-key", "CORPORATE_KEY": "evaluator-key",
+	}), nil, rc)
+	assert.Empty(t, flags)
+	assert.Empty(t, values)
 }

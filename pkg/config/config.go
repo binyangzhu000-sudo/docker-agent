@@ -19,6 +19,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 )
 
 // LoadOption customizes a single Load call.
@@ -38,9 +39,9 @@ func WithFlavors(names ...string) LoadOption {
 }
 
 func Load(ctx context.Context, source Source, opts ...LoadOption) (*latest.Config, error) {
-	var options loadOptions
+	var loadOpts loadOptions
 	for _, opt := range opts {
-		opt(&options)
+		opt(&loadOpts)
 	}
 
 	data, err := source.Read(ctx)
@@ -50,7 +51,7 @@ func Load(ctx context.Context, source Source, opts ...LoadOption) (*latest.Confi
 
 	// Flavor patches rewrite the raw document, so they run before anything
 	// (including the version sniff below) reads it.
-	if data, err = applyFlavors(ctx, data, options.flavors); err != nil {
+	if data, err = applyFlavors(ctx, data, loadOpts.flavors); err != nil {
 		return nil, err
 	}
 
@@ -165,14 +166,14 @@ var ErrGatewayAuthentication = errors.New("sorry, you first need to sign in Dock
 // CheckRequiredEnvVars checks which environment variables are required by the models and tools.
 //
 // This allows exiting early with a proper error message instead of failing later when trying to use a model or tool.
-func CheckRequiredEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway string, env environment.Provider) error {
+func CheckRequiredEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway string, env environment.Provider, evaluatorOpts ...options.Opt) error {
 	if modelsGateway != "" && environment.IsDockerDomainURL(modelsGateway) {
 		if jwt, _ := env.Get(ctx, environment.DockerDesktopTokenEnv); jwt == "" {
 			return ErrGatewayAuthentication
 		}
 	}
 
-	missing, missingModelCreds, err := gatherMissingEnvVars(ctx, cfg, modelsGateway, env)
+	missing, missingModelCreds, err := gatherMissingEnvVars(ctx, cfg, modelsGateway, env, evaluatorOpts...)
 	if err != nil {
 		// If there's a tool preflight error, log it but continue
 		slog.WarnContext(ctx, "Failed to preflight toolset environment variables; continuing", "error", err)

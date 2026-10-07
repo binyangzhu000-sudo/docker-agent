@@ -104,7 +104,7 @@ func WithProviderRegistry(registry *provider.Registry) Opt {
 
 // WithModelOptions appends caller-supplied [options.Opt] values to every model
 // client teamloader constructs for this load: primary, fallback, title, and
-// compaction models, as well as models built while loading external
+// compaction models, evaluators, as well as models built while loading external
 // (OCI/URL-referenced) sub-agents. Use this to thread cross-cutting model
 // configuration — most notably options.WithHTTPTransportWrapper, which lets an
 // embedder authenticate every outbound LLM request (regardless of provider)
@@ -366,7 +366,12 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		config.ResolveModelAliases(ctx, cfg, modelsStore)
 	}
 
-	if err := config.CheckRequiredEnvVars(ctx, cfg, runConfig.ModelsGateway, env); err != nil {
+	evaluatorOpts := []options.Opt{
+		options.WithGateway(runConfig.ModelsGateway), options.WithEncryptedConfig(runConfig.EncryptedConfig),
+	}
+	evaluatorOpts = append(evaluatorOpts, loadOpts.modelOpts...)
+	evaluatorOpts = append(evaluatorOpts, runConfig.EvaluatorOptions...)
+	if err := config.CheckRequiredEnvVars(ctx, cfg, runConfig.ModelsGateway, env, evaluatorOpts...); err != nil {
 		return nil, err
 	}
 
@@ -386,7 +391,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 		if err != nil {
 			return nil, fmt.Errorf("evaluator %q: %w", name, err)
 		}
-		client, err := evaluatorprovider.New(ctx, resolved, env)
+		client, err := evaluatorprovider.New(ctx, resolved, env, evaluatorOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("evaluator %q: %w", name, err)
 		}

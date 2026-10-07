@@ -3360,7 +3360,8 @@
       "properties": {
         "provider": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Evaluator backend (typesafe or openai Decisions), or a named provider."
         },
         "model": {
           "type": "string",
@@ -3380,7 +3381,7 @@
         },
         "base_url": {
           "type": "string",
-          "description": "API base URL (TypeSafe default: https://api.typesafe.ai); /v1/systemone is appended unless endpoint is set."
+          "description": "API base URL. TypeSafe defaults to https://api.typesafe.ai with /v1/systemone; OpenAI defaults to https://api.openai.com/v1 with /decisions."
         },
         "endpoint": {
           "type": "string",
@@ -3388,7 +3389,11 @@
         },
         "token_key": {
           "type": "string",
-          "description": "API key environment variable (TypeSafe default: TYPESAFE_API_KEY)."
+          "description": "API key environment variable for direct calls (TYPESAFE_API_KEY or OPENAI_API_KEY)."
+        },
+        "bypass_models_gateway": {
+          "type": "boolean",
+          "description": "Connect directly even when a models gateway is configured. Custom base_url and endpoint do not implicitly bypass the gateway."
         },
         "choices": {
           "type": "object",
@@ -3424,7 +3429,7 @@
         },
         "cost": {
           "$ref": "#/definitions/CostConfig",
-          "description": "Explicit USD pricing per one million evaluator input/output tokens. Overrides built-in TypeSafe pricing, including on custom endpoints. An empty object declares free evaluations; cache rates are unused."
+          "description": "Explicit USD pricing per one million evaluator input/output tokens. Overrides built-in evaluator pricing, including on custom endpoints. An empty object declares free evaluations; cache rates are unused."
         }
       },
       "required": [

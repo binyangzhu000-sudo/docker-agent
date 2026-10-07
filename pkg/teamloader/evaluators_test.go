@@ -18,6 +18,8 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/httpclient"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/tools/builtin/filesystem"
 	"github.com/docker/docker-agent/pkg/tools/builtin/shell"
 )
@@ -352,4 +354,130 @@ func TestLoadLayaEvaluatorExample(t *testing.T) {
 	assert.Equal(t, "laya-rl-agent", result.Model)
 	assert.Nil(t, result.Cost)
 	assert.EqualValues(t, 1, requests.Load())
+}
+
+func TestLoadEvaluatorsThroughGateway(t *testing.T) {
+	t.Parallel()
+	for _, backend := range []string{"typesafe", "openai"} {
+		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
+			var requests atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				assert.Equal(t, "Bearer docker-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "session", r.Header.Get("X-Cagent-Session-Id"))
+				assert.Equal(t, backend, r.Header.Get("X-Cagent-Provider"))
+				body, err := io.ReadAll(r.Body)
+				assert.NoError(t, err)
+				assert.Contains(t, string(body), `"encrypted_agent_config":"encrypted"`)
+				response := `{"model":"jev","answers":{"evaluation":{"type":"choice","choice":"safe","probabilities":{"safe":1,"unsafe":0}}},"usage":{"input_tokens":12,"output_tokens":0}}`
+				if backend == "openai" {
+					assert.Equal(t, "/v1/decisions", r.URL.Path)
+					assert.Contains(t, string(body), `"input":`)
+					response = `{"model":"gpt-6-luna","answers":[{"type":"choice","name":"evaluation","choice":"safe","probabilities":[{"value":"safe","probability":1},{"value":"unsafe","probability":0}]}],"usage":{"input_tokens":12,"output_tokens":0}}`
+				} else {
+					assert.Equal(t, "/v1/systemone", r.URL.Path)
+				}
+				_, err = io.WriteString(w, response)
+				assert.NoError(t, err)
+			}))
+			t.Cleanup(server.Close)
+			data := evaluatorTeamYAML
+			rc := &config.RuntimeConfig{
+				Config: config.Config{ModelsGateway: server.URL, EncryptedConfig: "encrypted", Providers: map[string]latest.ProviderConfig{
+					"risk_api": {Provider: backend, BaseURL: map[string]string{"typesafe": "https://api.typesafe.ai", "openai": "https://api.openai.com/v1"}[backend], TokenKey: "CUSTOM_KEY"},
+				}},
+				EnvProviderOverride: environment.NewMapEnvProvider(map[string]string{environment.DockerDesktopTokenEnv: "docker-token"}),
+			}
+			loaded, err := LoadWithConfig(t.Context(), config.NewBytesSource("gateway.yaml", []byte(data)), rc,
+				withTestProviderRegistry(WithStrict(config.FeatureHooks, config.FeatureEvaluators))...)
+			require.NoError(t, err, "no upstream evaluator or chat key is needed")
+			assert.Zero(t, requests.Load())
+			client, ok := loaded.Team.Evaluator("safety")
+			require.True(t, ok)
+			result, err := client.Evaluate(httpclient.ContextWithSessionID(t.Context(), "session"), map[string]string{"tool_name": "shell"})
+			require.NoError(t, err)
+			assert.Equal(t, "safe", result.Choice)
+			assert.EqualValues(t, 1, requests.Load())
+		})
+	}
+}
+
+func TestImportedEvaluatorGatewayScope(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer docker-token", r.Header.Get("Authorization"))
+		response := `{"model":"jev","answers":{"evaluation":{"type":"noul","noul":0}},"usage":{"input_tokens":1,"output_tokens":0}}`
+		if r.URL.Path == "/v1/decisions" {
+			response = `{"model":"gpt-6-luna","answers":[{"type":"predicate","name":"evaluation","probability":1}],"usage":{"input_tokens":1,"output_tokens":0}}`
+		} else {
+			assert.Equal(t, "/v1/systemone", r.URL.Path)
+		}
+		_, err := io.WriteString(w, response)
+		assert.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+	const manifest = `evaluators:
+  risk:
+    provider: %s
+    model: model
+    type: boolean
+    instructions: Assess risk.
+agents:
+  root:
+    model: openai/gpt-4o
+%s`
+	rc := &config.RuntimeConfig{
+		Config:              config.Config{ModelsGateway: server.URL},
+		EnvProviderOverride: environment.NewMapEnvProvider(map[string]string{environment.DockerDesktopTokenEnv: "docker-token"}),
+	}
+	loaded, err := LoadWithConfig(t.Context(), config.NewBytesSource("parent.yaml", []byte(fmt.Sprintf(manifest, "openai", "    sub_agents: [child:example/helper]\n"))), rc,
+		withTestProviderRegistry(WithSourceResolver(func(string, environment.Provider) (config.Source, error) {
+			return config.NewBytesSource("child.yaml", []byte(fmt.Sprintf(manifest, "typesafe", ""))), nil
+		}))...)
+	require.NoError(t, err)
+	for name, want := range map[string]float64{"root": 1, "child": 0} {
+		a, err := loaded.Team.Agent(name)
+		require.NoError(t, err)
+		client, ok := a.Evaluator("risk")
+		require.True(t, ok)
+		result, err := client.Evaluate(t.Context(), "state")
+		require.NoError(t, err)
+		assert.InDelta(t, want, *result.Probability, 1e-9)
+	}
+}
+
+func TestEvaluatorPreflightEffectiveOptions(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{"runtime", "model options"} {
+		for _, useGateway := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/gateway=%t", source, useGateway), func(t *testing.T) {
+				t.Parallel()
+				rc := &config.RuntimeConfig{
+					Config:              config.Config{Providers: map[string]latest.ProviderConfig{"risk_api": {Provider: "typesafe", TokenKey: "CUSTOM_KEY"}}},
+					EnvProviderOverride: environment.NewMapEnvProvider(map[string]string{"OPENAI_API_KEY": "chat-key"}),
+				}
+				gateway := ""
+				if useGateway {
+					gateway = "http://localhost:7777"
+				} else {
+					rc.ModelsGateway = "http://localhost:7777"
+				}
+				opts := withTestProviderRegistry()
+				if source == "runtime" {
+					rc.EvaluatorOptions = []options.Opt{options.WithGateway(gateway)}
+				} else {
+					opts = append(opts, WithModelOptions(options.WithGateway(gateway)))
+				}
+				loaded, err := LoadWithConfig(t.Context(), config.NewBytesSource("preflight.yaml", []byte(evaluatorTeamYAML)), rc, opts...)
+				if useGateway {
+					require.NoError(t, err, "effective gateway must supply evaluator credentials")
+					require.NotNil(t, loaded)
+				} else {
+					require.ErrorContains(t, err, "CUSTOM_KEY", "direct evaluator credential must fail preflight")
+					assert.Nil(t, loaded)
+				}
+			})
+		}
+	}
 }
