@@ -327,3 +327,36 @@ func TestAgentDetailsDialog_OmitsInstruction(t *testing.T) {
 	assert.NotContains(t, out, "Instruction", "the system prompt is never surfaced")
 	assert.NotContains(t, out, "System prompt")
 }
+
+func TestAgentDetailsDialog_ExecutionCapabilities(t *testing.T) {
+	t.Parallel()
+	native := &runtime.ExecutionCapabilities{
+		Mode: runtime.ExecutionModeNative, ToolExecution: runtime.ToolExecutionDockerAgent,
+		ToolApproval: runtime.ToolApprovalDockerAgentPolicy, BudgetSupported: true,
+		CompactionSupported: true, MidTurnSteeringSupported: true, PromptHookContextSupported: true,
+	}
+	external := &runtime.ExecutionCapabilities{
+		Mode: runtime.ExecutionModeHarness, ToolExecution: runtime.ToolExecutionHarnessReported,
+		ToolApproval: runtime.ToolApprovalExternal,
+	}
+	out := renderAgentDetails(runtime.AgentDetails{Name: "root", ExecutionCapabilities: native}, runtime.AgentConfigInfo{})
+	assert.Contains(t, out, "Execution: native")
+	assert.Contains(t, out, "Tool execution: docker-agent")
+	assert.Contains(t, out, "Tool approval: docker-agent-policy")
+	assert.Contains(t, out, "Budgets: supported; requires runtime configuration")
+	assert.Contains(t, out, "Mid-turn steering: supported")
+
+	out = renderAgentDetails(runtime.AgentDetails{Name: "root", ExecutionCapabilities: native}, runtime.AgentConfigInfo{ExecutionCapabilities: external})
+	assert.Contains(t, out, "Execution: harness")
+	assert.Contains(t, out, "Tool execution: harness-reported")
+	assert.Contains(t, out, "Tool approval: external")
+	assert.Contains(t, out, "Budgets: unsupported")
+	assert.Contains(t, out, "Native compaction: unsupported")
+	assert.Contains(t, out, "Prompt-hook context: unsupported")
+	assert.Contains(t, out, "docker-agent does not approve them")
+	assert.NotContains(t, out, "Execution: native", "local inspection must take precedence over a stale roster")
+
+	out = renderAgentDetails(runtime.AgentDetails{Name: "legacy", Model: "codex"}, runtime.AgentConfigInfo{})
+	assert.NotContains(t, out, "Execution:")
+	assert.NotContains(t, out, "Budgets:", "unknown metadata must not be inferred from a model label")
+}

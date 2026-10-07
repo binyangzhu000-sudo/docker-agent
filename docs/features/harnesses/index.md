@@ -164,9 +164,33 @@ Harness agents bypass the Docker Agent model pipeline entirely. As a result:
 >
 > Do not configure `toolsets:` on a harness agent — they are silently ignored. If you need Docker Agent toolsets alongside external coding capabilities, use a standard sub-agent with `transfer_task` rather than a harness.
 
+## Execution Capabilities
+
+The Agent Inspector and runtime `team_info` roster distinguish native execution
+from harness execution. Harness profiles report tools as `harness-reported` and
+approval ownership as `external`: tool events describe actions performed by the
+CLI, not calls approved by Docker Agent's tool dispatcher. This does not imply
+that the external CLI's own approval prompts are enabled.
+
+Harness execution does not support Docker Agent's native budget enforcement,
+compaction of the external CLI's conversation or mid-turn steering. A manual
+compaction hook may summarize Docker Agent's stored transcript, but cannot
+compact the harness's retained conversation. Usage reports remain available,
+but they are not native budget counters. Profiles describe each agent's own
+execution; native orchestration does not extend these controls to a delegated
+harness. A missing capability profile, such as
+from an older remote server, means unknown—not native or unsupported. See
+[Execution capabilities](../api-server/index.md#execution-capabilities) for the
+wire fields.
+
 ## Hook Behavior
 
-Hooks work normally on harness agents, including `before_llm_call` and `after_llm_call`. `before_llm_call` runs before the prompt is forwarded to the external CLI and can block or rewrite the run; `after_llm_call` fires after the CLI returns its final response.
+Lifecycle hooks and `before_llm_call` / `after_llm_call` still run on harness
+agents. `before_llm_call` runs before the prompt is forwarded to the external CLI
+and can block or rewrite the run; `after_llm_call` fires after the CLI returns its
+final response. Transient additional context from native session, prompt and
+turn-start hooks is not forwarded into the harness conversation. Reported
+harness tool events do not pass through native pre/post-tool approval hooks.
 
 The `model_id` field in hook payloads is set to the harness label (e.g. `claude-code`) rather than a canonical `provider/model` string. This applies to `before_llm_call`, `after_llm_call`, and any other event that carries `model_id`.
 

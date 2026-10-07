@@ -127,6 +127,45 @@ restart. Stored transcript usage and cost totals are retained but do not seed
 the new wallet. This is an execution limit, not a persistent quota, and does not
 apply to external `harness:` execution. See [Budget](../../configuration/budget/index.md).
 
+### Execution capabilities
+
+`team_info.available_agents` entries carry optional `execution_capabilities`.
+Local startup/refresh `agent_info` events include the same profile. The
+Agent Inspector displays it without starting tools or harness drivers.
+
+```json
+{
+  "mode": "native",
+  "tool_execution": "docker-agent",
+  "tool_approval": "docker-agent-policy",
+  "budget_supported": true,
+  "compaction_supported": true,
+  "mid_turn_steering_supported": true,
+  "prompt_hook_context_supported": true
+}
+```
+
+These are integration capabilities, **not enabled settings or security
+attestations**. Native approval can allow a call without prompting. Budget
+support requires the caller to install budget configuration; CLI and HTTP API
+currently do so, while ACP, MCP and A2A do not forward manifest wallets.
+Compaction support does not mean automatic compaction is enabled. Profiles
+refer to each agent's own execution: a native orchestrator's controls do not
+cover delegated external harness actions.
+
+Harness profiles use `mode: harness`, `tool_execution: harness-reported` and
+`tool_approval: external`, with the four support flags false. Reported harness
+tools have already run outside docker-agent's approval pipeline; `external`
+does not guarantee the harness prompts or enforces approvals. Harness lifecycle
+and before-LLM hooks still run, but native transient prompt-hook context is not
+forwarded into the harness's conversation.
+
+An absent profile means **unknown**, including on older servers and
+manifest-only remote inspection. Use `team_info` as the roster authority;
+model-only `agent_info` updates may omit the profile and must not clear a
+previously received one. Remote clients forward server metadata without
+inferring capabilities from model names or manifests.
+
 ### Health
 
 | Method | Path        | Description                               |

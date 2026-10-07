@@ -990,6 +990,8 @@ type AgentInfoEvent struct {
 	// PrimaryContextLimit is the primary model's own context window, set
 	// only alongside CompactionModel.
 	PrimaryContextLimit int64 `json:"primary_context_limit,omitempty"`
+	// Nil means unknown; model-only update events may omit this field.
+	ExecutionCapabilities *ExecutionCapabilities `json:"execution_capabilities,omitempty"`
 }
 
 func AgentInfo(agentName, model, description, welcomeMessage string, contextLimit ...int64) Event {
@@ -1018,8 +1020,9 @@ type AgentDetails struct {
 	// configuration: an effort level (e.g. "high"), "adaptive", a decimal token
 	// count for token-based budgets, or "off" when disabled. Empty when the
 	// model has no selectable thinking configuration.
-	Thinking string         `json:"thinking,omitempty"`
-	Commands types.Commands `json:"commands,omitempty"`
+	Thinking              string                 `json:"thinking,omitempty"`
+	Commands              types.Commands         `json:"commands,omitempty"`
+	ExecutionCapabilities *ExecutionCapabilities `json:"execution_capabilities,omitempty"`
 }
 
 // TeamInfoEvent is sent when team information is available

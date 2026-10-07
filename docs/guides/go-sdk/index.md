@@ -135,6 +135,23 @@ The CLI uses this helper for both its initial runtime and TUI-spawned runtimes.
 The HTTP API wires the same manifest budgets into its native runtimes; other
 serving adapters retain their existing wiring and budget behavior.
 
+## Execution Capability Inspection
+
+`(*runtime.LocalRuntime).AgentExecutionCapabilities(name)` returns a static
+native/harness profile without starting tools, constructing drivers or
+initializing budget counters. Unknown agents return nil. The same optional
+profile is available on `runtime.AgentConfigInfo`, `runtime.AgentDetails` in
+`team_info`, and local startup/refresh `runtime.AgentInfoEvent` values.
+See [Execution capabilities](../../features/api-server/index.md#execution-capabilities)
+for field meanings and unknown/remote behavior.
+
+`runtime.Runtime` and existing function signatures are unchanged. The exported
+inspection/event structs have new optional fields: downstream code using
+**unkeyed** composite literals for these structs must switch to keyed literals.
+Existing keyed literals and JSON consumers accepting additional fields remain
+compatible. Capability support is not proof an adapter installed configuration
+or a policy requires approval.
+
 ## Headless Embedded Chat (`pkg/embeddedchat`)
 
 `pkg/embeddedchat` is a thin wrapper around the Docker Agent runtime that lets you drive an agent from your own UI instead of running Docker Agent's Bubble Tea application. It handles runtime construction, event projection, and conversation state, exposing a simple `Send` / `Confirm` / `Restart` / `Close` API.

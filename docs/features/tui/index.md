@@ -164,6 +164,7 @@ The title is rendered in the agent's accent color. Sections appear in this order
 
 - **Description** — the agent's wrapped description.
 - **Live state** — a `● current agent` line when the inspected agent is the one currently running.
+- **Execution capabilities** — native versus harness execution, tool execution/approval ownership, and support for budgets, native compaction, mid-turn steering and prompt-hook context. Support is not an enabled setting; budget support requires runtime configuration. Harness actions are reported, not approved by Docker Agent. Omitted when the server has not supplied a profile.
 - **Model / Fallback / Thinking** — the `provider/model`, any fallback models, and the gauge + value thinking line (omitted for models with no selectable thinking, e.g. harness-backed agents).
 - **Context** — the agent's latest known context usage, e.g. `Context: 12.8K of 128.0K tokens (10%)` (a bare token count when the context limit is unknown; omitted until the agent has run). Sub-agent and background-agent runs are accounted for. When a dedicated `compaction_model` caps the effective limit below the primary model's own window, the token-usage line also shows a short "⚠ capped" marker (see `/context` for the model and figure).
 - **Cost** — the agent's cumulative cost across all runs in the session tree. Repeated session snapshots are not double-counted. Omitted until the agent has run.

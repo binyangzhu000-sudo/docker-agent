@@ -971,6 +971,8 @@ type AgentConfigInfo struct {
 	Toolsets []ToolsetDetail // per-toolset live state + tools, in declaration order
 
 	IsCurrent bool // true when this is the live current agent
+
+	ExecutionCapabilities *ExecutionCapabilities
 }
 
 // AgentConfigInfo returns the named agent's inspector dataset. It inspects the
@@ -1017,6 +1019,7 @@ func (r *LocalRuntime) AgentConfigInfo(ctx context.Context, agentName string) Ag
 		Options:                 agentOptionFlags(a, cfg, hasCfg),
 		Toolsets:                toolsetDetails(ctx, a, cfg, hasCfg),
 		IsCurrent:               r.agents != nil && r.agents.Name() == agentName,
+		ExecutionCapabilities:   executionCapabilities(a),
 	}
 	if hasCfg {
 		info.Skills = configSkillNames(cfg)
@@ -1502,9 +1505,11 @@ func (r *LocalRuntime) agentDetailsFromTeam(ctx context.Context) []AgentDetails 
 		providerName := info.Provider
 		modelName := info.Model
 		var thinking string
+		var capabilities *ExecutionCapabilities
 
 		// Get the agent to access fallbacks and the effective thinking level.
 		if a, err := r.team.Agent(info.Name); err == nil && a != nil {
+			capabilities = executionCapabilities(a)
 			// Check if this agent has an active fallback cooldown
 			cooldownState := r.fallback.cooldowns.Get(info.Name)
 			if cooldownState != nil {
@@ -1519,12 +1524,13 @@ func (r *LocalRuntime) agentDetailsFromTeam(ctx context.Context) []AgentDetails 
 		}
 
 		details[i] = AgentDetails{
-			Name:        info.Name,
-			Description: info.Description,
-			Provider:    providerName,
-			Model:       modelName,
-			Thinking:    thinking,
-			Commands:    info.Commands,
+			Name:                  info.Name,
+			Description:           info.Description,
+			Provider:              providerName,
+			Model:                 modelName,
+			Thinking:              thinking,
+			Commands:              info.Commands,
+			ExecutionCapabilities: capabilities,
 		}
 	}
 	return details
@@ -1706,6 +1712,7 @@ func (r *LocalRuntime) emitAgentAndTeamInfo(ctx context.Context, a *agent.Agent,
 		compactionModel, primaryLimit = "", 0
 	}
 	info := AgentInfo(a.Name(), modelLabel, a.Description(), a.WelcomeMessage(), contextLimit).(*AgentInfoEvent)
+	info.ExecutionCapabilities = executionCapabilities(a)
 	info.CompactionModel = compactionModel
 	info.PrimaryContextLimit = primaryLimit
 	if !send(info) {
