@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/codingharness"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/harness"
 	"github.com/docker/docker-agent/pkg/js"
 	"github.com/docker/docker-agent/pkg/paths"
 	"github.com/docker/docker-agent/pkg/session"
@@ -91,9 +93,9 @@ func useFailingHarnessShim(t *testing.T, name, out string) {
 	require.NoError(t, os.WriteFile(filepath.Join(harnessBinDir, name+".exit"), []byte("1"), 0o600))
 }
 
-func harnessShimArgs(t *testing.T, name string) string {
+func harnessShimArgs(t *testing.T) string {
 	t.Helper()
-	args, err := os.ReadFile(filepath.Join(harnessBinDir, name+".args"))
+	args, err := os.ReadFile(filepath.Join(harnessBinDir, "codex.args"))
 	require.NoError(t, err)
 	return string(args)
 }
@@ -104,6 +106,7 @@ func TestHarnessAgentRunStream(t *testing.T) {
 	}
 
 	useHarnessShim(t, "codex", `{"type":"item.completed","item":{"type":"agent_message","text":"harness done"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}
 `)
 
 	rt := newHarnessRuntime(t, "codex")
@@ -121,7 +124,7 @@ func TestHarnessAgentRunStream(t *testing.T) {
 	}
 	assert.True(t, sawHarnessModel, "expected AgentInfo event with codex harness label")
 
-	args := harnessShimArgs(t, "codex")
+	args := harnessShimArgs(t)
 	assert.Contains(t, args, "do the task")
 	assert.NotContains(t, args, "You are an external coder.")
 	assert.NotContains(t, args, "<user>")
@@ -134,6 +137,7 @@ func TestHarnessAgentResumesPersistedSession(t *testing.T) {
 
 	useHarnessShim(t, "codex", `{"type":"thread.started","thread_id":"thread-123"}
 {"type":"item.completed","item":{"type":"agent_message","text":"first answer"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}
 `)
 
 	store := session.NewInMemorySessionStore()
@@ -147,12 +151,13 @@ func TestHarnessAgentResumesPersistedSession(t *testing.T) {
 
 	useHarnessShim(t, "codex", `{"type":"thread.started","thread_id":"thread-123"}
 {"type":"item.completed","item":{"type":"agent_message","text":"second answer"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}
 `)
 	loaded.AddMessage(session.UserMessage("follow up only"))
 	rt = newHarnessRuntimeWithStore(t, "codex", store)
 	collectRuntimeEvents(t, rt, loaded)
 
-	args := harnessShimArgs(t, "codex")
+	args := harnessShimArgs(t)
 	assert.Contains(t, args, "exec\nresume\nthread-123\n")
 	assert.Contains(t, args, "follow up only")
 	assert.NotContains(t, args, "first question")
@@ -167,6 +172,32 @@ func TestHarnessAgentResumesPersistedSession(t *testing.T) {
 	assert.Equal(t, "thread-123", harnessSessionIDFor(loaded, rt.CurrentAgent()))
 }
 
+func TestHarnessFirstFailedTurnCanResume(t *testing.T) {
+	if stdruntime.GOOS == "windows" {
+		t.Skip("shell script shim test")
+	}
+	useHarnessShim(t, "codex", `{"type":"thread.started","thread_id":"retry-thread"}
+{"type":"turn.failed","error":{"message":"quota exceeded"}}
+`)
+	store := session.NewInMemorySessionStore()
+	rt := newHarnessRuntimeWithStore(t, "codex", store)
+	sess := session.New(session.WithUserMessage("first question"))
+	events := collectRuntimeEvents(t, rt, sess)
+	assert.True(t, hasEventType(t, events, &ErrorEvent{}))
+	loaded, err := store.GetSession(t.Context(), sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "retry-thread", harnessSessionIDFor(loaded, rt.CurrentAgent()))
+	useHarnessShim(t, "codex", `{"type":"item.completed","item":{"type":"agent_message","text":"recovered"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}
+`)
+	loaded.AddMessage(session.UserMessage("try again"))
+	rt = newHarnessRuntimeWithStore(t, "codex", store)
+	events = collectRuntimeEvents(t, rt, loaded)
+	assert.False(t, hasEventType(t, events, &ErrorEvent{}))
+	assert.Equal(t, "recovered", loaded.GetLastAssistantMessageContent())
+	assert.Contains(t, harnessShimArgs(t), "exec\nresume\nretry-thread\n")
+}
+
 // TestHarnessRejectsImplicitOrMissingUserPrompt checks the genuine empty-prompt
 // case: an implicit "Please proceed." with no task/system message is
 // meaningless to the harness, so the run must be rejected before launch.
@@ -179,6 +210,7 @@ func TestHarnessRejectsImplicitOrMissingUserPrompt(t *testing.T) {
 	}
 
 	useHarnessShim(t, "codex", `{"type":"item.completed","item":{"type":"agent_message","text":"unexpected"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}
 `)
 	rt := newHarnessRuntime(t, "codex")
 	sess := session.New(session.WithImplicitUserMessage("Please proceed."))
@@ -203,6 +235,7 @@ func TestHarnessDelegatedTaskWithImplicitUserMessage(t *testing.T) {
 	}
 
 	useHarnessShim(t, "codex", `{"type":"item.completed","item":{"type":"agent_message","text":"delegation done"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}
 `)
 	rt := newHarnessRuntime(t, "codex")
 	// Mirror exactly what newSubSession builds for a transfer_task delegation:
@@ -219,7 +252,7 @@ func TestHarnessDelegatedTaskWithImplicitUserMessage(t *testing.T) {
 	assert.Equal(t, "delegation done", sess.GetLastAssistantMessageContent())
 
 	// Harness args must carry the task text so the harness can act on it.
-	args := harnessShimArgs(t, "codex")
+	args := harnessShimArgs(t)
 	assert.Contains(t, args, task)
 	assert.Contains(t, args, "<task>")
 }
@@ -231,6 +264,7 @@ func TestHarnessSubSessionIDSurvivesReconstruction(t *testing.T) {
 
 	useHarnessShim(t, "codex", `{"type":"thread.started","thread_id":"child-thread"}
 {"type":"item.completed","item":{"type":"agent_message","text":"done"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}
 `)
 	store, err := sqlitestore.New(t.Context(), filepath.Join(t.TempDir(), "sessions.db"))
 	require.NoError(t, err)
@@ -255,6 +289,7 @@ func TestHarnessToolCallCompletes(t *testing.T) {
 
 	useHarnessShim(t, "codex", `{"type":"item.started","item":{"type":"command_execution","command":"npm test"}}
 {"type":"item.completed","item":{"type":"agent_message","text":"tests passed"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}
 `)
 
 	rt := newHarnessRuntime(t, "codex")
@@ -380,4 +415,36 @@ func collectRuntimeEvents(t *testing.T, rt *LocalRuntime, sess *session.Session)
 		events = append(events, ev)
 	}
 	return events
+}
+
+func TestHarnessCanceledFirstTurnRetainsThread(t *testing.T) {
+	t.Parallel()
+	store := session.NewInMemorySessionStore()
+	root := agent.New("root", "", agent.WithHarness(&latest.HarnessConfig{Type: "codex"}))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)), WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithSessionStore(store),
+		WithHarnessFactory(func(*latest.HarnessConfig) (harness.Provider, error) {
+			return canceledHarnessProvider{cancel: cancel}, nil
+		}))
+	require.NoError(t, err)
+	sess := session.New(session.WithUserMessage("first question"))
+	for range rt.RunStream(ctx, sess) {
+	}
+	loaded, err := store.GetSession(t.Context(), sess.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "canceled-thread", harnessSessionIDFor(loaded, root))
+}
+
+type canceledHarnessProvider struct{ cancel context.CancelFunc }
+
+func (p canceledHarnessProvider) Name() string { return "codex" }
+func (p canceledHarnessProvider) Run(ctx context.Context, _ string, handle func(harness.Event)) error {
+	handle(harness.Event{Type: harness.EventSessionID, SessionID: "canceled-thread"})
+	p.cancel()
+	return ctx.Err()
+}
+
+func (p canceledHarnessProvider) Resume(ctx context.Context, _, prompt string, handle func(harness.Event)) error {
+	return p.Run(ctx, prompt, handle)
 }

@@ -183,6 +183,10 @@ func (r *LocalRuntime) runHarnessAgent(ctx context.Context, sess *session.Sessio
 	} else {
 		err = provider.Resume(ctx, harnessSessionID, prompt, handleEvent)
 	}
+	// Keep a new thread resumable even when its first turn fails or is canceled.
+	if reportedHarnessSessionID != "" && reportedHarnessSessionID != harnessSessionID && (err == nil || harnessSessionID == "") {
+		r.rememberHarnessSessionID(ctx, sess, a, reportedHarnessSessionID)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			completeRemainingToolCalls(tools.ResultError("External harness was canceled."))
@@ -200,10 +204,6 @@ func (r *LocalRuntime) runHarnessAgent(ctx context.Context, sess *session.Sessio
 		endReason = turnEndReasonError
 		return endReason
 	}
-	if reportedHarnessSessionID != "" && reportedHarnessSessionID != harnessSessionID {
-		r.rememberHarnessSessionID(ctx, sess, a, reportedHarnessSessionID)
-	}
-
 	completeRemainingToolCalls(harnessToolCompletedResult())
 
 	content := strings.TrimSpace(streamed.String())
