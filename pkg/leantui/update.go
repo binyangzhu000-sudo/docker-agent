@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/leantui/ui"
 	"github.com/docker/docker-agent/pkg/modelpicker"
+	"github.com/docker/docker-agent/pkg/programstatus"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -148,6 +149,7 @@ func (m *model) handleInterrupt() {
 		m.ignoredUsers = nil
 		m.screen.Confirm = nil
 		m.cancelMarkerPending = true
+		m.statusSession.Cancel(m.contentSession(""))
 	case !m.screen.Editor.IsEmpty():
 		m.screen.Editor.Reset()
 		m.screen.Autocomplete.Dismiss()
@@ -704,9 +706,11 @@ func (m *model) sendFirstMessage(ctx context.Context, msg, attachPath string) {
 // run, storing its cancel func so it can be interrupted.
 func (m *model) beginRun(ctx context.Context) (context.Context, context.CancelFunc) {
 	runCtx, cancel := context.WithCancel(ctx)
+	runCtx = m.app.BeginOperation(runCtx)
 	m.runCancel = cancel
 	m.busy = true
 	m.cancelMarkerPending = false
+	m.statusSession.Start(m.contentSession(""))
 	return runCtx, cancel
 }
 
@@ -774,9 +778,13 @@ func (m *model) handleConfirmKey(k ui.Key) {
 func (m *model) resolveConfirm(req runtime.ResumeRequest) {
 	m.app.Resume(req)
 	m.screen.Confirm = nil
+	m.statusSession.Resolve(m.confirmationEvent)
+	m.confirmationEvent = nil
 }
 
 func (m *model) resetConversation() {
+	m.statusSession = programstatus.Session{}
+	m.confirmationEvent = nil
 	if m.runCancel != nil {
 		m.runCancel()
 		m.runCancel = nil

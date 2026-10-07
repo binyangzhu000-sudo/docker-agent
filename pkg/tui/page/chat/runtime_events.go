@@ -442,6 +442,9 @@ func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd 
 	// Outermost stream stopped — fully clean up. This is the exact-content
 	// boundary for the active root response; nested stops leave the parent's
 	// deferred tail intact until the parent itself stops or the user re-enters it.
+	if p.onRunFinish != nil {
+		p.onRunFinish(msg.Reason)
+	}
 	finalizeCmd := p.messages.FinalizeStream()
 	// Only play the success sound when the stream completed normally.
 	// Errors already trigger a failure sound via ErrorEvent, and

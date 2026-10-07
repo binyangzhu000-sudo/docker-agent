@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/docker/docker-agent/pkg/programstatus"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/tui/core"
 	"github.com/docker/docker-agent/pkg/tui/dialog"
@@ -24,6 +25,9 @@ func isTabStateEvent(msg tea.Msg) bool {
 func (m *appModel) applyTabEvent(tab *tabModel, msg tea.Msg) tea.Cmd {
 	if tab == nil || tab.state == nil || !isTabStateEvent(msg) {
 		return nil
+	}
+	if m.programStatus != nil {
+		tab.programStatus.Apply(tab.state.SessionID(), msg)
 	}
 	active := tab == m.activeTab
 	changed, bell := tab.state.Apply(msg, active)
@@ -106,6 +110,7 @@ func (m *appModel) parkAttention(tab *tabModel) {
 }
 
 func (m *appModel) retireAttention(tab *tabModel) {
+	tab.programStatus = programstatus.Session{}
 	if tab.state != nil {
 		tab.state.ClearAttention()
 	}

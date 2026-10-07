@@ -936,6 +936,7 @@ func (sm *SessionManager) finishSessionDeletion(sessionID string, sessionRuntime
 		// (pkg/app) and outlive this session, so they are left alone.
 		if sessionRuntime.done == nil {
 			sessionRuntime.runtime.OnElicitationRequest(nil)
+			sessionRuntime.runtime.OnBackgroundEvent(nil)
 		}
 		if sessionRuntime.cancel != nil {
 			sessionRuntime.cancel()
@@ -1735,6 +1736,7 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 	// RegisterEventSource) and answerable through the existing elicitation
 	// route (#3584).
 	run.OnElicitationRequest(sm.sessionElicitationSink(sess.ID))
+	run.OnBackgroundEvent(sm.sessionElicitationSink(sess.ID))
 
 	// Apply any stored per-agent model overrides so that a session
 	// resumed (or freshly created with overrides via CreateSession) uses

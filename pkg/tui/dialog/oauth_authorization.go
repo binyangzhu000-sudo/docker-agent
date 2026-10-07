@@ -58,11 +58,11 @@ func (d *oauthAuthorizationDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		model, cmd, handled := HandleConfirmKeys(msg, d.keyMap,
 			func() (layout.Model, tea.Cmd) {
 				_ = d.app.ResumeElicitation(d.ctx(), tools.ElicitationActionAccept, nil, d.elicitationID)
-				return d, core.CmdHandler(CloseDialogMsg{})
+				return d, core.CmdHandler(CloseDialogMsg{ElicitationID: d.elicitationID})
 			},
 			func() (layout.Model, tea.Cmd) {
 				_ = d.app.ResumeElicitation(d.ctx(), tools.ElicitationActionDecline, nil, d.elicitationID)
-				return d, core.CmdHandler(CloseDialogMsg{})
+				return d, core.CmdHandler(CloseDialogMsg{ElicitationID: d.elicitationID})
 			},
 		)
 		if handled {

@@ -37,7 +37,8 @@ import (
 )
 
 type App struct {
-	ctx func() context.Context
+	operation atomic.Uint64
+	ctx       func() context.Context
 
 	runtime                runtime.Runtime
 	session                *session.Session
@@ -443,6 +444,7 @@ func (a *App) SkillCommandFork(_ context.Context, input string) (skillName, task
 // opens the child; the sub-session's first user message is the expanded
 // SKILL.md body. Companion of SkillCommandFork.
 func (a *App) RunSkillFork(ctx context.Context, cancel context.CancelFunc, skillName, task string, _ []messages.Attachment) {
+	ctx = a.operationContext(ctx)
 	if _, ok := ctx.Value(eventGenerationKey{}).(uint64); !ok {
 		ctx = a.eventContext(ctx)
 	}
@@ -588,6 +590,7 @@ func (a *App) EmitStartupInfo(ctx context.Context, events chan runtime.Event) {
 
 // Run one agent loop
 func (a *App) Run(ctx context.Context, cancel context.CancelFunc, message string, attachments []messages.Attachment) {
+	ctx = a.operationContext(ctx)
 	if _, ok := ctx.Value(eventGenerationKey{}).(uint64); !ok {
 		ctx = a.eventContext(ctx)
 	}
@@ -780,7 +783,7 @@ func (a *App) sendEvent(ctx context.Context, event tea.Msg) {
 	default:
 	}
 	select {
-	case a.events <- a.stampEvent(ctx, event):
+	case a.events <- a.stampEvent(ctx, operationEvent(ctx, event)):
 	case <-ctx.Done():
 	case <-a.eventsDone:
 	}
@@ -985,6 +988,7 @@ func (a *App) processInlineAttachment(att messages.Attachment, textBuilder *stri
 // re-emission; genuine user messages injected mid-run (steer / follow-up)
 // arrive after StreamStarted and are forwarded normally.
 func (a *App) Retry(ctx context.Context, cancel context.CancelFunc) {
+	ctx = a.operationContext(ctx)
 	if _, ok := ctx.Value(eventGenerationKey{}).(uint64); !ok {
 		ctx = a.eventContext(ctx)
 	}
@@ -1016,6 +1020,7 @@ func (a *App) Retry(ctx context.Context, cancel context.CancelFunc) {
 // RunWithMessage runs the agent loop with a pre-constructed message.
 // This is used for special cases like image attachments.
 func (a *App) RunWithMessage(ctx context.Context, cancel context.CancelFunc, msg *session.Message) {
+	ctx = a.operationContext(ctx)
 	if _, ok := ctx.Value(eventGenerationKey{}).(uint64); !ok {
 		ctx = a.eventContext(ctx)
 	}
@@ -1830,6 +1835,7 @@ func (a *App) IsReadOnly() bool {
 }
 
 func (a *App) CompactSession(ctx context.Context, cancel context.CancelFunc, additionalPrompt string) {
+	ctx = a.operationContext(ctx)
 	if _, ok := ctx.Value(eventGenerationKey{}).(uint64); !ok {
 		ctx = a.eventContext(ctx)
 	}

@@ -11,6 +11,7 @@ type KeyType int
 
 const (
 	KeyNone KeyType = iota
+	KeyProgramStatus
 	KeyRune
 	KeyPaste
 	KeyEnter
@@ -50,40 +51,158 @@ var (
 	pasteEnd   = []byte("\x1b[201~")
 )
 
-// InputParser turns raw terminal bytes into key events. It is stateful only to
-// reassemble bracketed-paste payloads, which may span several reads.
+// InputParser reassembles bracketed paste and input split across reads.
 type InputParser struct {
-	inPaste bool
-	paste   []rune
+	inPaste    bool
+	oscExpired bool
+	paste      []byte
+	pending    []byte
 }
 
 func (p *InputParser) Feed(b []byte) []Key {
+	p.pending = append(p.pending, b...)
+	b = p.pending
 	var out []Key
 	for len(b) > 0 {
 		if p.inPaste {
 			idx := bytes.Index(b, pasteEnd)
 			if idx < 0 {
-				p.paste = append(p.paste, []rune(string(b))...)
-				return out
+				keep := 0
+				for n := 1; n < len(pasteEnd) && n <= len(b); n++ {
+					if bytes.Equal(b[len(b)-n:], pasteEnd[:n]) {
+						keep = n
+					}
+				}
+				p.paste = append(p.paste, b[:len(b)-keep]...)
+				b = b[len(b)-keep:]
+				break
 			}
-			p.paste = append(p.paste, []rune(string(b[:idx]))...)
-			out = append(out, Key{Typ: KeyPaste, Runes: p.paste})
+			p.paste = append(p.paste, b[:idx]...)
+			out = append(out, Key{Typ: KeyPaste, Runes: []rune(string(p.paste))})
 			p.paste = nil
 			p.inPaste = false
 			b = b[idx+len(pasteEnd):]
 			continue
 		}
-
-		idx := bytes.Index(b, pasteStart)
-		if idx < 0 {
-			out = append(out, parseChunk(b)...)
-			return out
+		if bytes.HasPrefix(b, pasteStart) {
+			p.inPaste = true
+			b = b[len(pasteStart):]
+			continue
 		}
-		out = append(out, parseChunk(b[:idx])...)
-		p.inPaste = true
-		b = b[idx+len(pasteStart):]
+		if len(b) > 1 && bytes.HasPrefix(pasteStart, b) {
+			break
+		}
+		size := 1
+		if b[0] == 0x1b && len(b) == 1 {
+			break
+		}
+		if b[0] == 0x1b && len(b) > 1 {
+			switch {
+			case b[1] == ']':
+				end := -1
+				for i := 2; i < len(b); i++ {
+					if b[i] == 7 {
+						end = i + 1
+						break
+					}
+					if b[i] == 0x1b && i+1 < len(b) {
+						if b[i+1] == '\\' {
+							end = i + 2
+							break
+						}
+						b = b[i:]
+						p.oscExpired = false
+						end = 0
+						break
+					}
+					if b[i] < 0x20 && b[i] != 0x1b {
+						b = b[i:]
+						p.oscExpired = false
+						end = 0
+						break
+					}
+				}
+				if end == 0 {
+					continue
+				}
+				if end < 0 {
+					if len(b) > 4096 {
+						b = nil
+					}
+					p.pending = append(p.pending[:0], b...)
+					return out
+				}
+				body := strings.TrimSuffix(strings.TrimSuffix(string(b[:end]), "\x1b\\"), "\a")
+				if !p.oscExpired && strings.HasPrefix(body, "\x1b]7501;?") {
+					out = append(out, Key{Typ: KeyProgramStatus})
+				}
+				b = b[end:]
+				p.oscExpired = false
+				continue
+			case b[1] == '[':
+				size = 2
+				for size < len(b) && b[size] >= 0x20 && b[size] <= 0x3f {
+					size++
+				}
+				if size < len(b) && b[size] < 0x20 {
+					b = b[size:]
+					continue
+				}
+				if size == len(b) {
+					p.pending = append(p.pending[:0], b...)
+					return out
+				}
+				size++
+			case b[1] == 'O' && len(b) < 3:
+				p.pending = append(p.pending[:0], b...)
+				return out
+			default:
+				size, _ = parseEscape(b)
+			}
+		} else if b[0] >= 0x80 {
+			if !utf8.FullRune(b) {
+				break
+			}
+			_, size = utf8.DecodeRune(b)
+		}
+		out = append(out, parseChunk(b[:size])...)
+		b = b[size:]
 	}
+	p.pending = append(p.pending[:0], b...)
 	return out
+}
+
+// Waiting reports an incomplete escape sequence, not an unfinished paste.
+func (p *InputParser) Waiting() bool {
+	if p.inPaste || len(p.pending) == 0 {
+		return false
+	}
+	if p.oscExpired {
+		return p.pending[len(p.pending)-1] == 0x1b
+	}
+	return p.pending[0] == 0x1b
+}
+
+// Expire recovers from incomplete terminal sequences without swallowing input.
+func (p *InputParser) Expire() []Key {
+	if !p.Waiting() {
+		return nil
+	}
+	if p.oscExpired && p.pending[len(p.pending)-1] == 0x1b {
+		p.pending = nil
+		p.oscExpired = false
+		return []Key{{Typ: KeyEsc}}
+	}
+	if bytes.HasPrefix(p.pending, []byte("\x1b]")) {
+		p.oscExpired = true
+		return nil
+	}
+	loneEscape := len(p.pending) == 1
+	p.pending = nil
+	if loneEscape {
+		return []Key{{Typ: KeyEsc}}
+	}
+	return nil
 }
 
 // parseChunk decodes a run of bytes that contains no bracketed-paste markers.

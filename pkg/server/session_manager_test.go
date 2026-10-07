@@ -85,6 +85,8 @@ func (f *fakeRuntime) ResumeElicitation(_ context.Context, _ tools.ElicitationAc
 // (with nil) on server-owned runtimes to silence the manager's sink.
 func (f *fakeRuntime) OnElicitationRequest(func(runtime.Event)) {}
 
+func (f *fakeRuntime) OnBackgroundEvent(func(runtime.Event)) {}
+
 func (f *fakeRuntime) CurrentAgentName(context.Context) string { return "root" }
 
 // delayedTitleProvider lets a RunSession title request finish after the

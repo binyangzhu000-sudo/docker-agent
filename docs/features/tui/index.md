@@ -67,6 +67,12 @@ Prefix a message with `!` to run it as a shell command directly, without going t
 
 Type `@` to open a fuzzy-searchable file completion menu (respects `.gitignore`); press <kbd>Tab</kbd> or <kbd>Enter</kbd> to insert the selected file's path into the message text.
 
+## Terminal status indicators
+
+In terminals supporting the [OSC 7501 Program Status protocol](https://www.superlogical.com/rex/docs/build/program-status), Docker Agent automatically reports when it is working, waiting for approval or input, finished, or failed. The terminal decides how to display these indicators, for example in an unfocused tab or session picker.
+
+Both the full TUI and lean mode support status reporting. In the full TUI, the status covers every open session: an unanswered prompt takes precedence over ongoing work, including prompts in background tabs. Cancellation is not reported as successful completion. Unsupported terminals retain the existing UI and bell behavior; redirected output and server modes do not emit status reports.
+
 ## Slash Commands
 
 Type `/` during a session to see available commands, or press <kbd>Ctrl</kbd>+<kbd>K</kbd> for the command palette:

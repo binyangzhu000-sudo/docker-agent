@@ -26,12 +26,16 @@ type SessionScoped interface {
 
 // AgentContext carries optional agent attribution and timestamp for an event.
 type AgentContext struct {
-	AgentName string    `json:"agent_name,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+	OperationID uint64    `json:"-"`
+	AgentName   string    `json:"agent_name,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 // GetAgentName returns the agent name for events embedding AgentContext.
 func (a AgentContext) GetAgentName() string { return a.AgentName }
+
+// Operation identifies the local foreground run; it is not sent over the wire.
+func (a AgentContext) Operation() uint64 { return a.OperationID }
 
 // newAgentContext creates a new AgentContext with the current timestamp.
 func newAgentContext(agentName string) AgentContext {
@@ -748,6 +752,17 @@ func ElicitationRequest(message, mode string, schema any, url, elicitationID, se
 
 // GetSessionID makes ElicitationRequestEvent satisfy [SessionScoped].
 func (e *ElicitationRequestEvent) GetSessionID() string { return e.SessionID }
+
+// ElicitationClosedEvent retires a request after resolution or cancellation.
+type ElicitationClosedEvent struct {
+	AgentContext
+
+	Type          string `json:"type"`
+	ElicitationID string `json:"elicitation_id"`
+	SessionID     string `json:"session_id,omitempty"`
+}
+
+func (e *ElicitationClosedEvent) GetSessionID() string { return e.SessionID }
 
 type AuthorizationEvent struct {
 	AgentContext

@@ -10,11 +10,13 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/mattn/go-isatty"
 
 	"github.com/docker/docker-agent/pkg/app"
 	"github.com/docker/docker-agent/pkg/gitbranch"
 	"github.com/docker/docker-agent/pkg/history"
 	"github.com/docker/docker-agent/pkg/leantui/ui"
+	"github.com/docker/docker-agent/pkg/programstatus"
 	"github.com/docker/docker-agent/pkg/sound"
 	"github.com/docker/docker-agent/pkg/tui/components/completion"
 	"github.com/docker/docker-agent/pkg/tui/components/editor/completions"
@@ -68,6 +70,13 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	m := newModel(term, cfg)
+	if isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd()) {
+		m.programStatus = &programstatus.Reporter{}
+		defer m.programStatus.Finish(os.Stdout)
+		m.programStatusProbe = true
+		_, _ = term.Writer().WriteString("\x1b]7501;?\x1b\\")
+		_ = term.Writer().Flush()
+	}
 	branchWatcher, err := gitbranch.Watch(loopCtx, cfg.WorkingDir)
 	if err != nil {
 		return err
@@ -141,16 +150,33 @@ func Run(ctx context.Context, cfg Config) error {
 	defer animationTicker.Stop()
 	branchChanges := branchWatcher.Changes()
 
+	probeTimer := time.NewTimer(200 * time.Millisecond)
+	defer probeTimer.Stop()
+	m.publishProgramStatus()
 	m.render()
 	for !m.quitting {
 		select {
 		case <-loopCtx.Done():
 			m.quitting = true
+		case <-probeTimer.C:
+			m.programStatusProbe = false
+			m.programStatusUnsupported = m.programStatus != nil && !m.programStatusSupported
 		case k := <-keys:
+			if k.Typ == ui.KeyProgramStatus {
+				if m.programStatusProbe {
+					m.programStatusProbe = false
+					m.programStatusSupported = true
+					m.publishProgramStatus()
+				}
+				continue
+			}
+			m.statusSession.Acknowledge()
 			m.handleKey(loopCtx, k)
+			m.publishProgramStatus()
 			m.render()
 		case ev := <-events:
 			m.handleEvent(loopCtx, ev)
+			m.publishProgramStatus()
 			m.render()
 		case sz := <-resizes:
 			m.width, m.height = sz[0], sz[1]
@@ -181,18 +207,63 @@ func Run(ctx context.Context, cfg Config) error {
 type fileCompletionsLoaded []completion.Item
 
 func readKeys(r io.Reader, keys chan<- ui.Key, done <-chan struct{}) {
-	p := &ui.InputParser{}
-	buf := make([]byte, 8192)
-	for {
-		n, err := r.Read(buf)
-		for _, k := range p.Feed(buf[:n]) {
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	reads := make(chan readResult)
+	go func() {
+		for {
+			buf := make([]byte, 8192)
+			n, err := r.Read(buf)
 			select {
-			case keys <- k:
+			case reads <- readResult{buf[:n], err}:
 			case <-done:
 				return
 			}
+			if err != nil {
+				return
+			}
 		}
-		if err != nil {
+	}()
+	p := &ui.InputParser{}
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+	defer timer.Stop()
+	var timeout <-chan time.Time
+	send := func(events []ui.Key) bool {
+		for _, key := range events {
+			select {
+			case keys <- key:
+			case <-done:
+				return false
+			}
+		}
+		return true
+	}
+	for {
+		select {
+		case result := <-reads:
+			if !send(p.Feed(result.data)) {
+				return
+			}
+			if result.err != nil {
+				send(p.Expire())
+				return
+			}
+			if p.Waiting() {
+				timer.Reset(30 * time.Millisecond)
+				timeout = timer.C
+			} else {
+				timer.Stop()
+				timeout = nil
+			}
+		case <-timeout:
+			if !send(p.Expire()) {
+				return
+			}
+			timeout = nil
+		case <-done:
 			return
 		}
 	}
@@ -205,10 +276,16 @@ type leanEvent struct {
 }
 
 type model struct {
-	eventGeneration atomic.Uint64
-	app             *app.App
-	term            *ui.Terminal
-	r               *ui.Renderer
+	programStatus            *programstatus.Reporter
+	programStatusProbe       bool
+	programStatusSupported   bool
+	programStatusUnsupported bool
+	statusSession            programstatus.Session
+	confirmationEvent        tea.Msg
+	eventGeneration          atomic.Uint64
+	app                      *app.App
+	term                     *ui.Terminal
+	r                        *ui.Renderer
 
 	width  int
 	height int
