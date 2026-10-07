@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/sources"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 )
 
 // CheckAvailable checks the selected CLI without requiring a local daemon.
@@ -308,10 +309,13 @@ func gatherSourceEnvVars(ctx context.Context, source config.Source, env environm
 		return nil, fmt.Errorf("loading agent config: %w", err)
 	}
 
+	var evaluatorOpts []options.Opt
 	for _, rc := range defaults {
 		if rc == nil {
 			continue
 		}
+		evaluatorOpts = append(evaluatorOpts, options.WithGateway(rc.ModelsGateway))
+		evaluatorOpts = append(evaluatorOpts, rc.EvaluatorOptions...)
 		config.MergeGlobalProviders(cfg, rc.Providers)
 		config.MergeAgentHooks(cfg, config.MergeHooks(rc.GlobalHooks, rc.CLIHooks()))
 	}
@@ -326,7 +330,7 @@ func gatherSourceEnvVars(ctx context.Context, source config.Source, env environm
 
 	var names []string
 	names = append(names, config.GatherEnvVarsForModels(ctx, cfg, env)...)
-	names = append(names, config.GatherEnvVarsForEvaluators(cfg)...)
+	names = append(names, config.RequiredEvaluatorEnvVars(cfg, evaluatorOpts...)...)
 
 	toolNames, err := config.GatherEnvVarsForTools(ctx, cfg)
 	if err != nil {

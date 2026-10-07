@@ -328,3 +328,29 @@ func TestEvaluateObservesOnlyAttemptedRequests(t *testing.T) {
 		})
 	}
 }
+
+func TestReportedOpenAIUsage(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		raw     string
+		want    *evaluator.Usage
+		invalid bool
+	}{
+		{`{"input_tokens":12}`, &evaluator.Usage{InputTokens: 12}, false},
+		{`{"input_tokens":0,"output_tokens":0}`, &evaluator.Usage{}, false},
+		{`{"input_tokens":null}`, nil, false},
+		{`null`, nil, false},
+		{`{}`, nil, false},
+		{`{"input_tokens":-1}`, nil, true},
+		{`{"input_tokens":12,"output_tokens":-1}`, nil, true},
+		{`{"input_tokens":1.5}`, nil, true},
+	} {
+		usage, err := reportedOpenAIUsage(json.RawMessage(tt.raw))
+		if tt.invalid {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+		}
+		assert.Equal(t, tt.want, usage)
+	}
+}

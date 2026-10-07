@@ -21,6 +21,7 @@ import (
 	agentsources "github.com/docker/docker-agent/pkg/config/sources"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/dmr"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/telemetry"
 	"github.com/docker/docker-agent/pkg/userconfig"
 )
@@ -388,7 +389,8 @@ func (f *doctorFlags) checkAgentFile(ctx context.Context, ref string, cfg *lates
 	for _, name := range config.RequiredModelEnvVars(ctx, cfg, f.runConfig.ModelsGateway, env) {
 		requiredBy[name] = append(requiredBy[name], "models")
 	}
-	for _, name := range config.GatherEnvVarsForEvaluators(cfg) {
+	evaluatorOpts := append([]options.Opt{options.WithGateway(f.runConfig.ModelsGateway)}, f.runConfig.EvaluatorOptions...)
+	for _, name := range config.RequiredEvaluatorEnvVars(cfg, evaluatorOpts...) {
 		requiredBy[name] = append(requiredBy[name], "evaluators")
 	}
 	toolVars, toolErr := config.GatherEnvVarsForTools(ctx, cfg)

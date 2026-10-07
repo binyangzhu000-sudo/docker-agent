@@ -237,8 +237,12 @@ Named providers from the agent or user configuration supply connection defaults;
 agent definitions take precedence. For a named judge using a user-level provider,
 the container receives only its provider type, base URL, and token variable name
 so the definition can load. The full user configuration and judge credential
-values are not forwarded automatically. Existing evaluator endpoint support also
-allows Jev-compatible services such as Laya.
+values are not forwarded automatically. Both TypeSafe Jev and native OpenAI Decisions are supported; use
+`--judge-model openai/gpt-6-luna` for the latter. Evaluator judges automatically use
+the configured models gateway with Docker authentication and no upstream key on
+the client. Set `bypass_models_gateway: true` on a named evaluator to call a
+private endpoint directly. Endpoint support also allows Jev-compatible services
+such as Laya.
 
 Judges run on the host and send the transcript to the selected provider. Only
 use trusted endpoints and review the transcript's sensitive data. A judge is

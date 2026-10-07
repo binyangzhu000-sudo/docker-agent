@@ -749,3 +749,29 @@ agents:
 		})
 	}
 }
+
+func TestDoctorEvaluatorGatewayCredentials(t *testing.T) {
+	t.Parallel()
+	for _, backend := range []string{"typesafe", "openai"} {
+		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
+			cfg := &latest.Config{
+				Evaluators: map[string]latest.EvaluatorConfig{"risk": {
+					Provider: backend, Model: "model", Type: "boolean", Instructions: "Assess risk.", TokenKey: "CUSTOM_EVALUATOR_KEY",
+				}},
+				Agents: latest.Agents{{Name: "root", Model: "openai/gpt-5-mini"}},
+			}
+			config.MergeAgentHooks(cfg, &latest.HooksConfig{ToolGuard: latest.HookMatcherConfigs{{Hooks: latest.HookDefinitions{{
+				Type: "evaluator", Evaluator: "risk", EvaluatorPolicy: &latest.EvaluatorPolicy{
+					Decisions: map[string]string{"true": "ask"}, MinProbability: 0.9, Fallback: "ask",
+				},
+			}}}}})
+			f := &doctorFlags{runConfig: config.RuntimeConfig{Config: config.Config{ModelsGateway: "http://localhost:7777"}}}
+			report := &doctorReport{}
+			f.checkAgentFile(t.Context(), "agent.yaml", cfg, environment.NewNoEnvProvider(), nil, report)
+			require.NotNil(t, report.AgentFile)
+			assert.Empty(t, report.AgentFile.Requirements)
+			assert.Empty(t, report.Issues)
+		})
+	}
+}

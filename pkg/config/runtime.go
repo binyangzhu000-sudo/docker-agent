@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -52,6 +53,9 @@ type Config struct {
 	// `X-Cagent-Encrypted-Config` header. It is ignored for non-Docker
 	// gateways and when no gateway is configured.
 	EncryptedConfig string
+
+	// EvaluatorOptions carries host overrides, such as the recording transport.
+	EvaluatorOptions []options.Opt
 
 	// Flavors are the config flavor patches to enable when loading agent
 	// configs, applied in order. Names a config does not define are ignored.
@@ -109,6 +113,7 @@ func (runConfig *RuntimeConfig) Clone() *RuntimeConfig {
 	clone.modelsDevStoreOnce.Do(func() {}) // mark as resolved
 	clone.EnvFiles = slices.Clone(runConfig.EnvFiles)
 	clone.Flavors = slices.Clone(runConfig.Flavors)
+	clone.EvaluatorOptions = slices.Clone(runConfig.EvaluatorOptions)
 	clone.Models = maps.Clone(runConfig.Models)
 	clone.Providers = maps.Clone(runConfig.Providers)
 	clone.DefaultModel = runConfig.DefaultModel.Clone()

@@ -119,6 +119,15 @@ func Apply(opts ...Opt) ModelOptions {
 	return m
 }
 
+// ForEvaluator applies connection overrides and the evaluator's explicit bypass.
+func ForEvaluator(cfg latest.EvaluatorConfig, opts ...Opt) ModelOptions {
+	m := Apply(opts...)
+	if cfg.BypassModelsGateway {
+		WithGateway("")(&m)
+	}
+	return m
+}
+
 func WithGateway(gateway string) Opt {
 	return func(cfg *ModelOptions) {
 		cfg.gateway = gateway

@@ -2,6 +2,7 @@ package evaluation
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,8 @@ func TestCreateJudgeSelectsBackend(t *testing.T) {
 		{"unknown type", "typo", "typesafe/jev-latest", "invalid judge type", false, false},
 		{"bad LLM ref", "llm", "invalid", "invalid judge model format", false, false},
 		{"bad evaluator ref", "evaluator", "missing", "expected 'provider/model' or a named evaluator", false, false},
-		{"unsupported evaluator", "evaluator", "openai/gpt-5", "unsupported evaluator provider", false, false},
+		{"openai evaluator", "evaluator", "openai/gpt-6-luna", "", true, false},
+		{"unsupported evaluator", "evaluator", "anthropic/claude", "unsupported evaluator provider", false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -94,7 +96,7 @@ func TestCreateEvaluatorJudgeConfiguration(t *testing.T) {
 			t.Cleanup(server.Close)
 			connection := latest.ProviderConfig{Provider: "typesafe", BaseURL: server.URL, TokenKey: "JUDGE_KEY"}
 			runConfig := &config.RuntimeConfig{
-				Config:              config.Config{ModelsGateway: "http://unused.invalid", Providers: map[string]latest.ProviderConfig{"assessments": connection}},
+				Config:              config.Config{Providers: map[string]latest.ProviderConfig{"assessments": connection}},
 				EnvProviderOverride: environment.NewMapEnvProvider(map[string]string{"JUDGE_KEY": "secret"}),
 			}
 			agentConfig := &latest.Config{}
@@ -132,5 +134,55 @@ func TestCreateJudgeRejectsNonBooleanEvaluator(t *testing.T) {
 				}})
 			require.ErrorContains(t, err, "must use type boolean")
 		})
+	}
+}
+
+func TestEvaluatorJudgeGateway(t *testing.T) {
+	t.Parallel()
+	for _, backend := range []string{"typesafe", "openai"} {
+		for _, named := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/named=%t", backend, named), func(t *testing.T) {
+				t.Parallel()
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					assert.Equal(t, "Bearer docker-token", r.Header.Get("Authorization"))
+					var payload map[string]json.RawMessage
+					assert.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+					assert.JSONEq(t, `"encrypted"`, string(payload["encrypted_agent_config"]))
+					response := `{"model":"jev-latest","answers":{"evaluation":{"type":"noul","noul":1}},"usage":{"input_tokens":12,"output_tokens":0}}`
+					if backend == "openai" {
+						assert.Equal(t, "/v1/decisions", r.URL.Path)
+						response = `{"model":"gpt-6-luna","answers":[{"type":"predicate","name":"evaluation","probability":1}],"usage":{"input_tokens":12,"output_tokens":0}}`
+						var state string
+						assert.NoError(t, json.Unmarshal(payload["input"], &state))
+						assert.Contains(t, state, `"criterion":`)
+					} else {
+						assert.Equal(t, "/v1/systemone", r.URL.Path)
+					}
+					_, err := io.WriteString(w, response)
+					assert.NoError(t, err)
+				}))
+				t.Cleanup(server.Close)
+				model := "jev-latest"
+				if backend == "openai" {
+					model = "gpt-6-luna"
+				}
+				ref := backend + "/" + model
+				agentConfig := &latest.Config{}
+				if named {
+					ref = "relevance"
+					agentConfig.Providers = map[string]latest.ProviderConfig{"corp": {Provider: backend, TokenKey: "UNNEEDED_KEY"}}
+					agentConfig.Evaluators = map[string]latest.EvaluatorConfig{ref: {
+						Provider: "corp", Model: model, Type: "boolean", Instructions: relevanceEvaluatorInstructions,
+					}}
+				}
+				rc := &config.RuntimeConfig{
+					Config:              config.Config{ModelsGateway: server.URL, EncryptedConfig: "encrypted"},
+					EnvProviderOverride: environment.NewMapEnvProvider(map[string]string{environment.DockerDesktopTokenEnv: "docker-token"}),
+				}
+				judge, err := createJudge(t.Context(), Config{JudgeType: JudgeTypeEvaluator, JudgeModel: ref}, rc, agentConfig)
+				require.NoError(t, err)
+				require.NoError(t, judge.Validate(t.Context()))
+			})
+		}
 	}
 }

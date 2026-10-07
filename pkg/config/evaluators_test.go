@@ -13,7 +13,7 @@ import (
 	"github.com/docker/docker-agent/pkg/environment"
 )
 
-func TestEvaluatorCredentialsIgnoreModelsGateway(t *testing.T) {
+func TestEvaluatorCredentialsRespectModelsGateway(t *testing.T) {
 	t.Parallel()
 	cfg := &latest.Config{
 		Providers: map[string]latest.ProviderConfig{"corp": {Provider: "typesafe", TokenKey: "CORP_KEY"}},
@@ -33,7 +33,12 @@ func TestEvaluatorCredentialsIgnoreModelsGateway(t *testing.T) {
 	assert.Equal(t, []string{"CORP_KEY"}, GatherEnvVarsForEvaluators(cfg))
 	for _, gateway := range []string{"", "https://gateway.example.com"} {
 		err := CheckRequiredEnvVars(t.Context(), cfg, gateway, environment.NewMapEnvProvider(map[string]string{"OPENAI_API_KEY": "test"}))
-		require.ErrorContains(t, err, "CORP_KEY")
+		if gateway == "" {
+			require.ErrorContains(t, err, "CORP_KEY")
+		} else {
+			require.NoError(t, err)
+			assert.Empty(t, GatherEnvVarsForEvaluators(cfg, gateway))
+		}
 		require.NoError(t, CheckRequiredEnvVars(t.Context(), cfg, gateway, environment.NewMapEnvProvider(map[string]string{
 			"OPENAI_API_KEY": "test", "CORP_KEY": "test",
 		})))
@@ -42,6 +47,10 @@ func TestEvaluatorCredentialsIgnoreModelsGateway(t *testing.T) {
 	def.TokenKey = "OVERRIDE_KEY"
 	cfg.Evaluators["risk"] = def
 	assert.Equal(t, []string{"OVERRIDE_KEY"}, GatherEnvVarsForEvaluators(cfg))
+	def.BypassModelsGateway = true
+	cfg.Evaluators["risk"] = def
+	assert.Equal(t, []string{"OVERRIDE_KEY"}, GatherEnvVarsForEvaluators(cfg, "https://gateway.example.com"))
+	require.ErrorContains(t, CheckRequiredEnvVars(t.Context(), cfg, "https://gateway.example.com", environment.NewNoEnvProvider()), "OVERRIDE_KEY")
 }
 
 func TestEvaluatorHookSchemaEventRestrictions(t *testing.T) {

@@ -233,6 +233,7 @@ remote MCP endpoints.
 | File | What it shows |
 |------|---------------|
 | [`permissions.yaml`](permissions.yaml) | Top-level `permissions` block with `allow`/`deny` patterns for tool calls. |
+| [`evaluators-openai.yaml`](evaluators-openai.yaml) | Native OpenAI Decisions tool guard, routed through the configured models gateway. |
 | [`evaluators.yaml`](evaluators.yaml) | TypeSafe Jev assessments with a separate, fail-closed tool-guard policy. |
 | [`evaluators-laya.yaml`](evaluators-laya.yaml) | Laya on Baseten using an exact evaluator endpoint and the same tool-guard policy. |
 | [`llm_judge.yaml`](llm_judge.yaml) | Layered defense: deterministic permissions + an LLM-as-judge `pre_tool_use` hook + user prompts. |

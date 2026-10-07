@@ -79,8 +79,19 @@ func NewGatewayClient(ctx context.Context, env environment.Provider, gateway, de
 	if err != nil {
 		return nil, fmt.Errorf("invalid gateway URL: %w", err)
 	}
-	// Preserve the existing path concatenation, including repeated slashes.
-	baseURL := fmt.Sprintf("%s://%s%s%s", gatewayURL.Scheme, gatewayURL.Host, gatewayURL.Path, pathSuffix)
+	if (gatewayURL.Scheme != "http" && gatewayURL.Scheme != "https") || gatewayURL.Host == "" {
+		return nil, errors.New("gateway must be an absolute HTTP(S) URL")
+	}
+	// Preserve escaped routing prefixes and repeated slashes without interpreting delimiters.
+	suffix, err := url.PathUnescape(pathSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("invalid gateway path: %w", err)
+	}
+	target := &url.URL{
+		Scheme: gatewayURL.Scheme, Host: gatewayURL.Host,
+		Path: gatewayURL.Path + suffix, RawPath: gatewayURL.EscapedPath() + pathSuffix,
+	}
+	baseURL := target.String()
 	httpOptions := GatewayHTTPOptions(gatewayURL, defaultBaseURL, cfg, modelOpts)
 	httpOptions = append(httpOptions, GatewayAuthRetry(env, gateway)...)
 	httpOptions = append(httpOptions, extra...)

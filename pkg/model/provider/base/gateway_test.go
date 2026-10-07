@@ -176,8 +176,9 @@ func TestNewGatewayClientBaseURL(t *testing.T) {
 		{"openai", "https://gateway.example.com/models?tier=pro#fragment", "/v1/", "https://gateway.example.com/models/v1/"},
 		{"anthropic and gemini", "https://gateway.example.com/models", "/", "https://gateway.example.com/models/"},
 		{"trailing slash", "https://gateway.example.com/models/", "/v1/", "https://gateway.example.com/models//v1/"},
-		{"escaped path", "https://gateway.example.com/a%2Fb", "/", "https://gateway.example.com/a/b/"},
-		{"relative URL", "models", "/", "://models/"},
+		{"escaped path", "https://gateway.example.com/a%2Fb", "/", "https://gateway.example.com/a%2Fb/"},
+		{"escaped delimiters", "https://gateway.example.com/a%3Fb%25c", "/v1/decisions", "https://gateway.example.com/a%3Fb%25c/v1/decisions"},
+		{"escaped suffix", "https://gateway.example.com/tenant", "/a%2Fb", "https://gateway.example.com/tenant/a%2Fb"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -251,4 +252,10 @@ func (f gatewayTokenEnv) Get(_ context.Context, name string) (string, bool) {
 		return "", false
 	}
 	return f(), true
+}
+
+func TestNewGatewayClientRejectsRelativeURL(t *testing.T) {
+	t.Parallel()
+	_, err := NewGatewayClient(t.Context(), nil, "models", "https://api.example.com", "/", &latest.ModelConfig{}, nil)
+	require.ErrorContains(t, err, "absolute HTTP(S)")
 }

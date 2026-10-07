@@ -1,19 +1,11 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"math"
-	"net/http"
-	"strings"
-	"time"
 
-	"github.com/docker/docker-agent/pkg/config/latest"
-	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/evaluator"
 )
 
@@ -24,18 +16,16 @@ const (
 )
 
 type typesafe struct {
-	client          *http.Client
-	env             environment.Provider
-	endpoint        string
-	tokenKey        string
-	model           string
+	evaluatorClient
+	assessment
+
+	question json.RawMessage
+}
+
+type assessment struct {
 	resultType      string
 	questionType    string
-	question        json.RawMessage
 	probabilityKeys []string
-	timeout         time.Duration
-	cost            *latest.CostConfig
-	officialPricing bool
 }
 
 type typesafeQuestion struct {
@@ -66,94 +56,15 @@ type typesafeAnswer struct {
 }
 
 func (p *typesafe) Evaluate(ctx context.Context, state any) (*evaluator.Result, error) {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
-	defer cancel()
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
+	return p.evaluate(ctx, state, p.payload, p.result)
+}
 
-	rawState, err := json.Marshal(state)
-	if err != nil {
-		return nil, errors.New("evaluator state must be JSON-serializable")
-	}
-	if len(rawState) == 0 || (rawState[0] != '"' && rawState[0] != '{' && rawState[0] != '[') {
-		return nil, errors.New("evaluator state must be a string, object, or array")
-	}
-	payload, err := json.Marshal(typesafeRequest{
+func (p *typesafe) payload(rawState json.RawMessage) ([]byte, error) {
+	return json.Marshal(typesafeRequest{
 		Model:     p.model,
 		State:     rawState,
 		Questions: map[string]json.RawMessage{"evaluation": p.question},
 	})
-	if err != nil {
-		return nil, errors.New("failed to encode evaluator request")
-	}
-
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	token, ok := p.env.Get(ctx, p.tokenKey)
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if !ok || strings.TrimSpace(token) == "" {
-		return nil, errors.New("evaluator API key is missing")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(payload))
-	if err != nil {
-		return nil, errors.New("failed to construct evaluator request")
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	record := evaluator.UsageRecord{Model: p.model}
-	defer func() { evaluator.ObserveUsage(ctx, record) }()
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, requestError(ctx, "evaluator request failed")
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
-	if err != nil {
-		return nil, requestError(ctx, "failed to read evaluator response")
-	}
-	if len(body) > maxResponseBytes {
-		return nil, errors.New("evaluator response exceeds size limit")
-	}
-	var response typesafeResponse
-	decodeErr := json.Unmarshal(body, &response)
-	var model string
-	modelErr := json.Unmarshal(response.Model, &model)
-	if strings.TrimSpace(model) != "" {
-		record.Model = model
-	}
-	var usageErr error
-	if decodeErr == nil {
-		record.Usage, usageErr = reportedUsage(response.Usage)
-		record.Cost = p.estimateCost(model, record.Usage)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("evaluator returned HTTP status %d", resp.StatusCode)
-	}
-	if decodeErr != nil || (len(response.Model) != 0 && modelErr != nil) {
-		return nil, errors.New("invalid evaluator response JSON")
-	}
-	if strings.TrimSpace(model) == "" {
-		return nil, errors.New("evaluator response is missing the model")
-	}
-	if usageErr != nil {
-		// Accounting cannot be trusted, so this must end the run instead of falling back.
-		return nil, &evaluator.TerminalError{Err: usageErr}
-	}
-	return p.result(response.Answers, record)
-}
-
-// Preserve cancellation identity without exposing transport errors or URLs.
-func requestError(ctx context.Context, message string) error {
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("%s: %w", message, err)
-	}
-	return errors.New(message)
 }
 
 func (p *typesafe) result(rawAnswers json.RawMessage, record evaluator.UsageRecord) (*evaluator.Result, error) {
@@ -167,6 +78,10 @@ func (p *typesafe) result(rawAnswers json.RawMessage, record evaluator.UsageReco
 	if answer == nil {
 		return nil, errors.New("evaluator response is missing the evaluation answer")
 	}
+	return p.answerResult(answer, record)
+}
+
+func (p *assessment) answerResult(answer *typesafeAnswer, record evaluator.UsageRecord) (*evaluator.Result, error) {
 	if answer.Type != p.questionType {
 		return nil, errors.New("evaluator answer type does not match the question")
 	}
@@ -220,7 +135,7 @@ func (p *typesafe) result(rawAnswers json.RawMessage, record evaluator.UsageReco
 	return result, nil
 }
 
-func (p *typesafe) probabilities(values map[string]*float64) (map[string]float64, error) {
+func (p *assessment) probabilities(values map[string]*float64) (map[string]float64, error) {
 	if len(values) != len(p.probabilityKeys) {
 		return nil, errors.New("evaluator answer probability keys do not match the criteria")
 	}

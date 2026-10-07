@@ -64,7 +64,7 @@ $ docker agent run [config] [message...] [flags]
 | `--env-from-file <path>`                | Load environment variables from file (repeatable)                                                                                         |
 | `--flavor <name>`                       | Enable a config flavor, a YAML patch defined under the config's `flavors` section (repeatable, applied in order). See [Flavors](../../configuration/flavors/index.md). |
 | `--code-mode-tools`                     | Provide a single tool to call other tools via JavaScript (forces code-mode tools globally)                                                |
-| `--models-gateway <addr>`               | Route model traffic through a gateway. Docker Desktop sign-in is required only for HTTPS `docker.com` gateways; loopback and third-party gateways need no Docker token. Also reads `DOCKER_AGENT_MODELS_GATEWAY` (legacy `CAGENT_MODELS_GATEWAY`) env var. |
+| `--models-gateway <addr>`               | Route model and evaluator traffic through a gateway. Docker Desktop sign-in is required only for HTTPS `docker.com` gateways; loopback and third-party gateways need no Docker token. Also reads `DOCKER_AGENT_MODELS_GATEWAY` (legacy `CAGENT_MODELS_GATEWAY`) env var. |
 | `--hook-pre-tool-use <cmd>`             | Add a pre-tool-use hook command (repeatable). See [Hooks](../../configuration/hooks/index.md).                                  |
 | `--hook-post-tool-use <cmd>`            | Add a post-tool-use hook command (repeatable)                                                                                             |
 | `--hook-session-start <cmd>`            | Add a session-start hook command (repeatable)                                                                                             |
@@ -876,7 +876,7 @@ These flags are accepted by every command that loads an agent (`run`, `run --exe
 | `--env-from-file <path>`        | Load environment variables from file (repeatable).                                                                       |
 | `--flavor <name>`               | Enable a config flavor, a YAML patch defined under the config's `flavors` section (repeatable, applied in order). See [Flavors](../../configuration/flavors/index.md). |
 | `--code-mode-tools`             | Provide a single tool to call other tools via JavaScript (forces code-mode tools globally).                              |
-| `--models-gateway <addr>`       | Route model traffic through a gateway. Reads `DOCKER_AGENT_MODELS_GATEWAY` (legacy `CAGENT_MODELS_GATEWAY`) env var.      |
+| `--models-gateway <addr>`       | Route model and evaluator traffic through a gateway. Reads `DOCKER_AGENT_MODELS_GATEWAY` (legacy `CAGENT_MODELS_GATEWAY`) env var.      |
 | `--hook-pre-tool-use <cmd>`     | Add a pre-tool-use hook command (repeatable). See [Hooks](../../configuration/hooks/index.md).                 |
 | `--hook-post-tool-use <cmd>`    | Add a post-tool-use hook command (repeatable).                                                                           |
 | `--hook-session-start <cmd>`    | Add a session-start hook command (repeatable).                                                                           |

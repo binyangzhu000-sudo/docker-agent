@@ -85,6 +85,15 @@ func TestEvaluatorResolve(t *testing.T) {
 	resolved, err = cfg.Resolve(nil)
 	require.NoError(t, err)
 	assert.Equal(t, "TYPESAFE_API_KEY", resolved.TokenKey)
+	cfg.Provider = "openai"
+	resolved, err = cfg.Resolve(nil)
+	require.NoError(t, err)
+	assert.Equal(t, "OPENAI_API_KEY", resolved.TokenKey)
+	cfg.Provider = "corporate"
+	resolved, err = cfg.Resolve(map[string]ProviderConfig{"corporate": {Provider: "openai", TokenKey: "CORP_OPENAI_KEY"}})
+	require.NoError(t, err)
+	assert.Equal(t, "openai", resolved.Provider)
+	assert.Equal(t, "CORP_OPENAI_KEY", resolved.TokenKey)
 }
 
 func TestEvaluatorPolicyValidation(t *testing.T) {
