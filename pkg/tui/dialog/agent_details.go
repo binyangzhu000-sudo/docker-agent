@@ -74,6 +74,7 @@ func (d *agentDetailsDialog) renderLines(contentWidth, _ int) []string {
 		lines = append(lines, marker+" "+styles.MutedStyle.Render("current agent"), "")
 	}
 
+	lines = append(lines, d.executionLines(contentWidth)...)
 	lines = append(lines, detailField("Model", d.modelText()))
 	if len(d.cfg.Fallbacks) > 0 {
 		lines = append(lines, detailField("Fallback", strings.Join(d.cfg.Fallbacks, ", ")))
@@ -103,6 +104,43 @@ func (d *agentDetailsDialog) renderLines(contentWidth, _ int) []string {
 	lines = append(lines, d.commandLines(contentWidth)...)
 
 	return lines
+}
+
+func (d *agentDetailsDialog) executionLines(contentWidth int) []string {
+	capabilities := d.cfg.ExecutionCapabilities
+	if capabilities == nil {
+		capabilities = d.agent.ExecutionCapabilities
+	}
+	if capabilities == nil {
+		return nil
+	}
+	lines := []string{
+		detailField("Execution", capabilities.Mode),
+		detailField("Tool execution", capabilities.ToolExecution),
+		detailField("Tool approval", capabilities.ToolApproval),
+	}
+	for _, feature := range []struct {
+		label     string
+		supported bool
+	}{
+		{"Budgets", capabilities.BudgetSupported},
+		{"Native compaction", capabilities.CompactionSupported},
+		{"Mid-turn steering", capabilities.MidTurnSteeringSupported},
+		{"Prompt-hook context", capabilities.PromptHookContextSupported},
+	} {
+		value := "unsupported"
+		if feature.supported {
+			value = "supported"
+			if feature.label == "Budgets" {
+				value += "; requires runtime configuration"
+			}
+		}
+		lines = append(lines, detailField(feature.label, value))
+	}
+	if capabilities.Mode == runtime.ExecutionModeHarness {
+		lines = append(lines, toolcommon.WrapLinesWords("External tool events report actions; docker-agent does not approve them.", contentWidth)...)
+	}
+	return append(lines, "")
 }
 
 func (d *agentDetailsDialog) modelText() string {

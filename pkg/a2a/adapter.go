@@ -78,6 +78,11 @@ func runDockerAgent(ctx agent.InvocationContext, t *team.Team, agentName string,
 		switch {
 		case err == nil:
 			sess = existing
+			// Reapply agent configuration; tool/history limits are not persisted.
+			session.WithMaxIterations(a.MaxIterations())(sess)
+			session.WithMaxConsecutiveToolCalls(a.MaxConsecutiveToolCalls())(sess)
+			session.WithMaxOldToolCallTokens(a.MaxOldToolCallTokens())(sess)
+			session.WithMaxToolResultTokens(a.MaxToolResultTokens())(sess)
 			sess.AddMessage(session.UserMessage(message))
 			sess.SetSafetyPolicy(servesafety.ResumeCeiling(sess.GetSafetyPolicy(), safety.Policy))
 			sess.NonInteractive = true

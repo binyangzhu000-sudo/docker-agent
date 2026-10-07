@@ -68,6 +68,18 @@ database has a newer schema (`ErrNewerDatabase`). Restore an older database, or
 use a binary that includes the migration. Revert changes without removing the
 migration catalogue entry.
 
+## Resuming conversations
+
+Invocations with the same A2A context ID resume the stored conversation. Before
+each resumed run, Docker Agent reapplies the selected agent's `max_iterations`,
+`max_consecutive_tool_calls`, `max_old_tool_call_tokens` and
+`max_tool_result_tokens`. This restores limits that are not persisted and uses
+the currently loaded configuration rather than stale session values. Zero or
+negative values retain their documented default/unlimited semantics.
+
+Resuming retains conversation history, title and workspace. The existing safety
+policy is preserved or tightened to the server's safety ceiling, never relaxed.
+
 ## Features
 
 - **Configurable listener** — Listens on `127.0.0.1:8082` by default; use `--listen` to choose another address or port

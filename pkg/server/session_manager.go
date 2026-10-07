@@ -1703,6 +1703,8 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 		// runtime.* spans go silent in HTTP-server mode.
 		runtime.WithTracer(otel.Tracer(version.AppName)),
 		runtime.WithModelSwitcherConfig(modelSwitcherCfg),
+		runtime.WithBudget(loadResult.Budget),
+		runtime.WithNamedBudgets(loadResult.Budgets, loadResult.AgentBudgets),
 	}
 	newRuntime := runtime.New
 	if sm.newRuntime != nil {
