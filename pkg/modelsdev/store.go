@@ -326,6 +326,7 @@ func lookupModel(provider Provider, id ID) (Model, bool) {
 		// OVHcloud's API uses mixed-case IDs; its catalog uses lowercase IDs.
 		model, exists = provider.Models[strings.ToLower(id.Model)]
 	}
+	model.Cost = model.Cost.forModel(id)
 	return model, exists
 }
 

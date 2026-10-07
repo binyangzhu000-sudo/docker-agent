@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ import (
 	"github.com/docker/docker-agent/pkg/hooks"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/session"
+	"github.com/docker/docker-agent/pkg/session/sqlitestore"
 	"github.com/docker/docker-agent/pkg/team"
 )
 
@@ -99,6 +101,72 @@ func TestRunStreamServiceTierCost(t *testing.T) {
 			assert.InDelta(t, tc.want, records[0].Cost, 1e-9)
 			assert.Equal(t, int64(100_000), records[0].InputTokens)
 			assert.Equal(t, int64(5_000), records[0].OutputTokens)
+		})
+	}
+}
+
+func TestServiceTierMixedTurnsPersistCost(t *testing.T) {
+	t.Parallel()
+
+	for _, modelID := range []string{"gpt-5.6-luna", "gpt-6-astra"} {
+		t.Run(modelID, func(t *testing.T) {
+			t.Parallel()
+			model := &configuredProvider{cfg: latest.ModelConfig{Provider: "openai", Model: modelID, BaseURL: "https://api.openai.com/v1", ProviderOpts: map[string]any{"service_tier": "fast"}}}
+			root := agent.New("root", "test", agent.WithModel(model))
+			dbPath := filepath.Join(t.TempDir(), "sessions.db")
+			store, err := sqlitestore.New(t.Context(), dbPath)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, store.Close()) })
+			rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)),
+				WithModelStore(modelsdev.NewDatabaseStore(modelsdev.EmbeddedSnapshot())),
+				WithSessionStore(store), WithSessionCompaction(false), WithBudget(&latest.BudgetConfig{MaxCost: 100}))
+			require.NoError(t, err)
+			sess := session.New(session.WithTitle("Mixed tier accounting"), session.WithUserMessage("hi"))
+			var wantTotal float64
+			for _, turn := range []struct {
+				tier  string
+				input int64
+				luna  float64
+				astra float64
+			}{
+				{"fast", 50_000, 0.0478, 2.29},
+				{"default", 500_000, 0.2248, 11.165},
+				{"priority", 500_000, 0.4496, 22.33},
+			} {
+				stream := newStreamBuilder().AddContent("ok").AddStopWithUsage(0, 0).Build()
+				stream.responses[len(stream.responses)-1].Usage = &chat.Usage{InputTokens: turn.input, CachedInputTokens: 20_000, CacheWriteTokens: 30_000, OutputTokens: 5_000, ReasoningTokens: 3_000, ServiceTier: turn.tier}
+				model.stream = stream
+				for event := range rt.RunStream(t.Context(), sess) {
+					if event, ok := event.(*ErrorEvent); ok {
+						t.Fatalf("runtime error: %s", event.Error)
+					}
+				}
+				want := turn.luna
+				if modelID == "gpt-6-astra" {
+					want = turn.astra
+				}
+				wantTotal += want
+				assert.InDelta(t, wantTotal, sess.TotalCost(), 1e-9)
+				assert.InDelta(t, wantTotal, rt.currentBudget().trackers[runBudgetName].snapshot().Cost, 1e-9)
+			}
+			reopened, err := sqlitestore.New(t.Context(), dbPath)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, reopened.Close()) })
+			loaded, err := reopened.GetSession(t.Context(), sess.ID)
+			require.NoError(t, err)
+			assert.InDelta(t, wantTotal, loaded.TotalCost(), 1e-9)
+			var tiers []string
+			for _, message := range loaded.OwnMessages() {
+				if message.Message.Role == chat.MessageRoleAssistant {
+					require.NotNil(t, message.Message.Usage)
+					tiers = append(tiers, message.Message.Usage.ServiceTier)
+				}
+			}
+			assert.Equal(t, []string{"fast", "default", "priority"}, tiers)
+			summaries, err := reopened.GetSessionSummaries(t.Context())
+			require.NoError(t, err)
+			require.Len(t, summaries, 1)
+			assert.InDelta(t, wantTotal, summaries[0].Cost, 1e-9)
 		})
 	}
 }
