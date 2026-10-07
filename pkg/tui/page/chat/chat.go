@@ -204,6 +204,9 @@ const maxQueuedMessages = 5
 //
 //nolint:gocritic // Kept near its supporting queued-message declarations.
 type chatPage struct {
+	onRunStart    func()
+	onRunCancel   func()
+	onRunFinish   func(string)
 	toolRenderers *tool.Registry
 	ar            *animation.Runtime
 	width, height int
@@ -429,6 +432,17 @@ func WithToolRenderers(registry *tool.Registry) PageOption {
 			p.toolRenderers = registry
 			p.messages.SetToolRenderers(registry)
 		}
+	}
+}
+
+// WithRunLifecycle observes accepted foreground work on the UI loop.
+func WithRunLifecycle(start, cancel func(), finish func(string)) PageOption {
+	return func(p *chatPage) { p.onRunStart, p.onRunCancel, p.onRunFinish = start, cancel, finish }
+}
+
+func (p *chatPage) startedRun() {
+	if p.onRunStart != nil {
+		p.onRunStart()
 	}
 }
 
@@ -981,6 +995,9 @@ func (p *chatPage) cancelStream(showCancelMessage bool) tea.Cmd {
 	}
 
 	p.msgCancel()
+	if p.onRunCancel != nil {
+		p.onRunCancel()
+	}
 	p.msgCancel = nil
 	p.streamCancelled = true
 	p.streamDepth = 0
@@ -1469,10 +1486,12 @@ func (p *chatPage) processMessage(msg msgtypes.SendMsg) tea.Cmd {
 	p.sidebar.ResetStreamTracking()
 
 	ctx, cancel := context.WithCancel(p.ctx())
+	ctx = p.app.BeginOperation(ctx)
 	p.msgCancel = cancel
 
 	// Start working state immediately to show the user something is happening.
 	// This provides visual feedback while the runtime loads tools and prepares the stream.
+	p.startedRun()
 	spinnerCmd := p.setWorking(true)
 	// Check if this is an agent command that needs resolution
 	// If so, show a loading message with the command description
@@ -1520,7 +1539,9 @@ func (p *chatPage) handleRetry() (layout.Model, tea.Cmd) {
 
 	var ctx context.Context
 	ctx, p.msgCancel = context.WithCancel(p.ctx())
+	ctx = p.app.BeginOperation(ctx)
 
+	p.startedRun()
 	spinnerCmd := p.setWorking(true)
 	p.app.Retry(ctx, p.msgCancel)
 
@@ -1534,6 +1555,8 @@ func (p *chatPage) CompactSession(additionalPrompt string) tea.Cmd {
 
 	var ctx context.Context
 	ctx, p.msgCancel = context.WithCancel(p.ctx())
+	ctx = p.app.BeginOperation(ctx)
+	p.startedRun()
 	p.app.CompactSession(ctx, p.msgCancel, additionalPrompt)
 
 	return tea.Batch(

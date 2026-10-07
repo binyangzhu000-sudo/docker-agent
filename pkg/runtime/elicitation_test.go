@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -415,4 +416,40 @@ func TestContextualElicitationPreservesProducerContext(t *testing.T) {
 	rt.emitElicitationRequestContext(origin, ElicitationRequest("request", "form", nil, "", "id", "", "child", nil, "root"))
 	require.Equal(t, "original-conversation", observed)
 	require.True(t, rt.hasElicitationSink())
+}
+
+func TestElicitationClosureDelivery(t *testing.T) {
+	t.Parallel()
+	for _, cancelRequest := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel=%t", cancelRequest), func(t *testing.T) {
+			t.Parallel()
+			rt := newElicitationTestRuntime(t)
+			defer rt.Close()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var request *ElicitationRequestEvent
+			rt.OnElicitationRequest(func(event Event) {
+				request = event.(*ElicitationRequestEvent)
+				if cancelRequest {
+					cancel()
+				} else {
+					require.NoError(t, rt.ResumeElicitation(ctx, tools.ElicitationActionAccept, nil, request.ElicitationID))
+				}
+			})
+			var closed *ElicitationClosedEvent
+			rt.OnBackgroundEventWithContext(func(origin context.Context, event Event) {
+				require.NoError(t, origin.Err(), "closure survives producer cancellation")
+				closed = event.(*ElicitationClosedEvent)
+			})
+			_, err := rt.elicitationHandler(ctx, &mcp.ElicitParams{Message: "Question"})
+			if cancelRequest {
+				require.ErrorIs(t, err, context.Canceled)
+			} else {
+				require.NoError(t, err)
+			}
+			require.NotNil(t, closed)
+			assert.Equal(t, request.ElicitationID, closed.ElicitationID)
+			assert.Equal(t, "elicitation_closed", closed.Type)
+		})
+	}
 }

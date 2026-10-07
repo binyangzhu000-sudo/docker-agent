@@ -108,6 +108,12 @@ func (s *State) Apply(msg tea.Msg, active bool) (changed, bell bool) {
 	case messages.StreamCancelledMsg:
 		s.running = false
 		s.retainDetachedElicitations()
+	case *runtime.ElicitationClosedEvent:
+		s.pending = slices.DeleteFunc(s.pending, func(msg tea.Msg) bool {
+			prompt, ok := msg.(*runtime.ElicitationRequestEvent)
+			return ok && prompt.ElicitationID == ev.ElicitationID
+		})
+		s.needsAttention = len(s.pending) > 0 && !active
 	case *runtime.SessionTitleEvent:
 		s.title = ev.Title
 	case *runtime.ToolCallConfirmationEvent, *runtime.MaxIterationsReachedEvent, *runtime.ElicitationRequestEvent:
@@ -148,6 +154,9 @@ func (s *State) RetiresAttention(boundary, event tea.Msg) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch msg := boundary.(type) {
+	case *runtime.ElicitationClosedEvent:
+		prompt, ok := event.(*runtime.ElicitationRequestEvent)
+		return ok && prompt.ElicitationID == msg.ElicitationID
 	case *runtime.StreamStartedEvent:
 		if !isTopLevelStream(s.sessionID, msg.SessionID) {
 			return false

@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker-agent/pkg/history"
 	"github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/plans"
+	"github.com/docker/docker-agent/pkg/programstatus"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tui/animation"
@@ -229,6 +230,11 @@ type appModel struct {
 	// quit path knows to reset it and leave no stray reports in the shell.
 	lightDarkModeSet bool
 
+	programStatus            *programstatus.Reporter
+	programStatusClosing     bool
+	programStatusProbe       bool
+	programStatusUnsupported bool
+
 	// pendingActiveTab is the tab ID to switch to on Init(). Set when the
 	// previously focused tab differs from the initial tab.
 	pendingActiveTab string
@@ -313,6 +319,14 @@ type Transcriber interface {
 
 // Option configures the TUI.
 type Option func(*appModel)
+
+// WithProgramStatusProbe detects support through the running UI input parser.
+func WithProgramStatusProbe(reporter *programstatus.Reporter) Option {
+	return func(m *appModel) {
+		m.programStatus = reporter
+		m.programStatusProbe = true
+	}
+}
 
 // WithLeanMode enables a simplified TUI with minimal chrome:
 // no sidebar, no tab bar, no overlays, no resize handle.
@@ -538,7 +552,7 @@ func New(ctx context.Context, spawner SessionSpawner, initialApp *app.App, initi
 	initialTab.editor = initialEditor
 
 	// Create initial chat page (after options are applied so leanMode is set)
-	initialChatPage := chat.New(m.ar, m.ctx(), initialApp, initialSessionState, m.chatPageOpts()...)
+	initialChatPage := chat.New(m.ar, m.ctx(), initialApp, initialSessionState, append(m.chatPageOpts(), m.runLifecycleOption(initialTab))...)
 	initialChatPage.SetRoutingID(sessID)
 	initialTab.chatPage = initialChatPage
 
@@ -688,7 +702,8 @@ func (m *appModel) initSessionComponents(tabID string, a *app.App, sess *session
 		chat.Cleanup(tab.chatPage)
 	}
 	ss := service.NewSessionState(sess)
-	cp := chat.New(m.ar, m.ctx(), a, ss, m.chatPageOpts()...)
+	opts := append(m.chatPageOpts(), m.runLifecycleOption(tab))
+	cp := chat.New(m.ar, m.ctx(), a, ss, opts...)
 	cp.Update(m.planSidebarData)
 	cp.SetRoutingID(tabID)
 	ed := editor.New(m.history, m.editorOpts()...)
@@ -727,7 +742,7 @@ func (m *appModel) contextShutdownCmd() tea.Cmd {
 
 // Init initializes the model.
 func (m *appModel) Init() tea.Cmd {
-	return tea.Batch(m.init(), m.tourStartupCmd(), m.autoThemeInitCmd(), m.refreshPlanSidebarCmd(), m.initTmuxVisibilityCmd())
+	return tea.Batch(m.init(), m.tourStartupCmd(), m.autoThemeInitCmd(), m.refreshPlanSidebarCmd(), m.initTmuxVisibilityCmd(), m.refreshProgramStatus(), m.programStatusProbeCmd())
 }
 
 // autoThemeInitCmd enables DEC mode 2031 (terminal color-scheme reports) so
@@ -746,15 +761,16 @@ func (m *appModel) autoThemeInitCmd() tea.Cmd {
 // theme enabled it, so the terminal stops sending color-scheme reports
 // after exit.
 func (m *appModel) quitCmd() tea.Cmd {
+	statusCmd := m.retireProgramStatus()
 	// Bubble Tea leaves the final frame in scrollback in lean mode.
 	m.paneHidden, m.viewCacheValid = false, false
 	m.tmuxVisibilityProbe = nil
 	m.visibilityGeneration++
 	if !m.lightDarkModeSet {
-		return tea.Quit
+		return tea.Sequence(statusCmd, tea.Quit)
 	}
 	m.lightDarkModeSet = false
-	return tea.Sequence(tea.Raw(ansi.ResetModeLightDark), tea.Quit)
+	return tea.Sequence(statusCmd, tea.Raw(ansi.ResetModeLightDark), tea.Quit)
 }
 
 // tourStartupCmd applies the configured startup tour mode: start the tour
@@ -828,6 +844,10 @@ func (m *appModel) init() tea.Cmd {
 // observe every message that flows through the TUI (to detect completed
 // steps) without ever consuming it.
 func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.application != nil && !m.application.IsCurrentOperation(msg) {
+		return m, nil
+	}
+	m.acknowledgeProgramStatus(msg)
 	stateCmd := m.applyTabEvent(m.activeTab, msg)
 	model, cmd := m.update(msg)
 	if isTabStateEvent(msg) && m.supervisor != nil {
@@ -836,6 +856,7 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if obs := m.tour.Observe(msg); obs != nil {
 		cmd = tea.Batch(cmd, obs)
 	}
+	cmd = tea.Batch(cmd, m.refreshProgramStatus())
 	return model, cmd
 }
 
@@ -847,6 +868,9 @@ func tabVisualGeneration(tabBar *tabbar.TabBar) uint64 {
 }
 
 func (m *appModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.handleProgramStatusReply(msg) {
+		return m, nil
+	}
 	// Unchanged visibility polls must not invalidate an idle frame.
 	switch msg := msg.(type) {
 	case tmuxVisibilityPollMsg:
@@ -1111,7 +1135,18 @@ func (m *appModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.OpenDialogMsg:
 		m.cancelSidebarPlanEdit()
 		return m.forwardDialog(msg)
-	case dialog.CloseDialogMsg, dialog.ClosePlanDetailMsg:
+	case dialog.CloseDialogMsg:
+		if msg.ElicitationID != "" {
+			prompt, ok := m.dialogMgr.TopBackgroundEvent().(*runtime.ElicitationRequestEvent)
+			if !ok || prompt.ElicitationID != msg.ElicitationID {
+				return m, nil
+			}
+		}
+		if m.programStatus != nil {
+			m.activeTab.programStatus.Resolve(m.dialogMgr.TopBackgroundEvent())
+		}
+		return m.forwardDialog(msg)
+	case dialog.ClosePlanDetailMsg:
 		return m.forwardDialog(msg)
 
 	case dialog.ExitConfirmedMsg:
@@ -1546,6 +1581,9 @@ func (m *appModel) handleRoutedMsg(msg messages.RoutedMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 	}
 	runner := m.supervisor.GetRunner(msg.SessionID)
+	if runner != nil && !runner.App.IsCurrentOperation(msg.Inner) {
+		return m, nil
+	}
 	if msg.Scope != nil && (runner == nil || runner.Scope != msg.Scope) {
 		return m, nil
 	}

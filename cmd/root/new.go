@@ -7,12 +7,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel"
 
 	"github.com/docker/docker-agent/pkg/app"
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/creator"
+	"github.com/docker/docker-agent/pkg/programstatus"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/telemetry"
@@ -145,6 +147,11 @@ func runTUIWrapped(ctx context.Context, rt runtime.Runtime, sess *session.Sessio
 	imageWriter.SetEnabled(userconfig.Get().GetRenderImages())
 	tuiimage.SetRenderingEnabled(imageWriter.RenderingEnabled())
 	tuiOpts = append(tuiOpts, tui.WithImageWriter(imageWriter))
+	if isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd()) {
+		reporter := &programstatus.Reporter{}
+		tuiOpts = append(tuiOpts, tui.WithProgramStatusProbe(reporter))
+		defer reporter.Finish(os.Stdout)
+	}
 	model := tui.New(ctx, spawner, a, wd, cleanup, tuiOpts...)
 	if wrap != nil {
 		model = wrap(model)

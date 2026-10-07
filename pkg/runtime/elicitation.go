@@ -599,6 +599,10 @@ func (r *LocalRuntime) requestElicitation(ctx context.Context, spec elicitationS
 	// once, BEFORE anything that could block (#3584 review item 1). This
 	// must never be gated behind the best-effort bridge below.
 	r.emitElicitationRequestContext(ctx, ev)
+	defer r.emitBackgroundEvent(context.WithoutCancel(ctx), &ElicitationClosedEvent{
+		Type: "elicitation_closed", ElicitationID: correlationID, SessionID: sessionID,
+		AgentContext: newAgentContext(agentName),
+	})
 
 	// Best-effort secondary delivery on the owning stream's events channel,
 	// kept for remote/SSE consumers that read directly off RunStream

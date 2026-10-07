@@ -24,6 +24,12 @@ func (m *model) handleEvent(ctx context.Context, ev any) {
 		}
 		ev = routed.inner
 	}
+	if m.app != nil && !m.app.IsCurrentOperation(ev) {
+		return
+	}
+	if m.programStatus != nil {
+		m.statusSession.Apply(m.contentSession(""), ev)
+	}
 	switch e := ev.(type) {
 	case fileCompletionsLoaded:
 		m.screen.Autocomplete.SetFiles(e)
@@ -66,6 +72,7 @@ func (m *model) handleEvent(ctx context.Context, ev any) {
 		if m.streamDepth > 0 {
 			return
 		}
+		m.statusSession.FinishSetup(m.contentSession(""), e.Reason)
 		m.notifyStreamStopped(ctx, e.Reason)
 		m.handleStreamStopped(ctx)
 	case *runtime.AgentChoiceReasoningEvent:
@@ -108,6 +115,7 @@ func (m *model) handleEvent(ctx context.Context, ev any) {
 		}
 		m.screen.Transcript.FinishTool(e.ToolCallID, ui.ToolResult{Response: e.Response, Result: e.Result, AgentName: e.GetAgentName(), ToolDefinition: e.ToolDefinition, Images: images}, m.sessionState)
 	case *runtime.ToolCallConfirmationEvent:
+		m.confirmationEvent = e
 		m.screen.Transcript.RemoveTool(ui.ToolViewID(e.ToolCall))
 		toolDef := ui.EnsureToolDefinition(e.ToolCall, e.ToolDefinition)
 		m.screen.Confirm = &ui.ConfirmModel{

@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/docker/docker-agent/pkg/app"
+	"github.com/docker/docker-agent/pkg/programstatus"
 	"github.com/docker/docker-agent/pkg/tui/components/editor"
 	"github.com/docker/docker-agent/pkg/tui/dialog"
 	"github.com/docker/docker-agent/pkg/tui/page/chat"
@@ -20,10 +21,11 @@ import (
 // tabModel owns the UI state keyed by a runtime tab ID, not the session-store ID.
 // A restored tab can exist before its editor and chat page are initialized.
 type tabModel struct {
-	state        *tabstate.State
-	chatPage     chat.Page
-	editor       editor.Editor
-	sessionState *service.SessionState
+	programStatus programstatus.Session
+	state         *tabstate.State
+	chatPage      chat.Page
+	editor        editor.Editor
+	sessionState  *service.SessionState
 
 	// Non-nil until the saved conversation is loaded on first activation.
 	pendingRestore          *string

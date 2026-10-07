@@ -21,7 +21,7 @@ type OpenDialogMsg struct {
 }
 
 // CloseDialogMsg is sent to close the current (topmost) dialog
-type CloseDialogMsg struct{}
+type CloseDialogMsg struct{ ElicitationID string }
 
 // CloseAllDialogsMsg is sent to close all dialogs in the stack
 type CloseAllDialogsMsg struct{}

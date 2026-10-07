@@ -102,6 +102,7 @@ func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
 			"budget_exceeded":        func() Event { return &BudgetExceededEvent{} },
 			"error":                  func() Event { return &ErrorEvent{} },
 			"elicitation_request":    func() Event { return &ElicitationRequestEvent{} },
+			"elicitation_closed":     func() Event { return &ElicitationClosedEvent{} },
 			"authorization_event":    func() Event { return &AuthorizationEvent{} },
 			"agent_choice":           func() Event { return &AgentChoiceEvent{} },
 			"agent_choice_reasoning": func() Event { return &AgentChoiceReasoningEvent{} },
