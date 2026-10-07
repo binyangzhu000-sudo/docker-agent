@@ -237,8 +237,8 @@ func TestA2ARuntimeConfig_ContextLifetimeAndCurrentOmissions(t *testing.T) {
 	require.Len(t, updated, 3)
 	assert.Equal(t, updated[0].ID, updated[1].ID, "a new invocation runtime resumes the persisted conversation")
 	assert.Equal(t, [4]int{7, 3, 1100, 900}, [4]int{updated[0].MaxIterations, updated[0].MaxConsecutiveToolCalls, updated[0].MaxOldToolCallTokens, updated[0].MaxToolResultTokens})
-	assert.Equal(t, [4]int{7, 0, 0, 0}, [4]int{updated[1].MaxIterations, updated[1].MaxConsecutiveToolCalls, updated[1].MaxOldToolCallTokens, updated[1].MaxToolResultTokens},
-		"A2A does not reapply nonpersisted limits on resume")
+	assert.Equal(t, [4]int{7, 3, 1100, 900}, [4]int{updated[1].MaxIterations, updated[1].MaxConsecutiveToolCalls, updated[1].MaxOldToolCallTokens, updated[1].MaxToolResultTokens},
+		"A2A must reapply selected-agent limits when resuming a stored context")
 	assert.Equal(t, [4]int{7, 3, 1100, 900}, [4]int{updated[2].MaxIterations, updated[2].MaxConsecutiveToolCalls, updated[2].MaxOldToolCallTokens, updated[2].MaxToolResultTokens})
 	assert.NotSame(t, updated[0], updated[2])
 	for _, sess := range updated {
