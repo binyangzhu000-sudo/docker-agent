@@ -1269,7 +1269,10 @@ func (r *LocalRuntime) Run(ctx context.Context, sess *session.Session) ([]sessio
 func applyModelCost(m *modelsdev.Model, id modelsdev.ID, usage *chat.Usage, config base.Config) *modelsdev.Model {
 	cfg := config.ModelConfig
 	// Routers cannot identify the serving endpoint here; custom endpoints need their own rates.
-	customEndpoint := cfg.BaseURL != "" || (config.BaseURL != "" && strings.TrimRight(config.BaseURL, "/") != "https://api.openai.com/v1")
+	isCustomEndpoint := func(endpoint string) bool {
+		return endpoint != "" && strings.TrimRight(endpoint, "/") != "https://api.openai.com/v1"
+	}
+	customEndpoint := isCustomEndpoint(cfg.BaseURL) || isCustomEndpoint(config.BaseURL)
 	if cfg.Cost != nil || customEndpoint || len(cfg.Routing) > 0 || m == nil || usage == nil {
 		return applyConfigCost(m, id, cfg.Cost)
 	}

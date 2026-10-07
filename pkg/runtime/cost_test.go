@@ -216,6 +216,11 @@ func TestApplyModelCostEndpointEligibility(t *testing.T) {
 		want   float64
 	}{
 		{name: "official resolved endpoint", config: base.Config{BaseURL: "https://api.openai.com/v1/"}, want: 60},
+		{name: "official configured endpoint", config: base.Config{ModelConfig: latest.ModelConfig{BaseURL: "https://api.openai.com/v1"}}, want: 60},
+		{name: "official configured endpoint trailing slash", config: base.Config{ModelConfig: latest.ModelConfig{BaseURL: "https://api.openai.com/v1/"}, BaseURL: "https://api.openai.com/v1/"}, want: 60},
+		{name: "custom configured endpoint", config: base.Config{ModelConfig: latest.ModelConfig{BaseURL: "https://example.com/v1"}}, want: 10},
+		{name: "gateway with custom configured endpoint", config: base.Config{ModelConfig: latest.ModelConfig{BaseURL: "https://example.com/v1"}, BaseURL: "https://api.openai.com/v1"}, want: 10},
+		{name: "resolved custom endpoint wins", config: base.Config{ModelConfig: latest.ModelConfig{BaseURL: "https://api.openai.com/v1"}, BaseURL: "https://example.com/v1"}, want: 10},
 		{name: "environment redirected endpoint", config: base.Config{BaseURL: "https://example.com/v1"}, want: 10},
 		{name: "router endpoint unknown", config: base.Config{ModelConfig: latest.ModelConfig{Routing: []latest.RoutingRule{{Model: "custom"}}}}, want: 10},
 	} {
@@ -224,6 +229,55 @@ func TestApplyModelCostEndpointEligibility(t *testing.T) {
 			cost := computeMessageCost(usage, applyModelCost(model, id, usage, tc.config))
 			require.NotNil(t, cost)
 			assert.InDelta(t, tc.want, *cost, 1e-9)
+		})
+	}
+}
+
+func TestLunaAstraPublishedCostBoundary(t *testing.T) {
+	t.Parallel()
+
+	store := modelsdev.NewDatabaseStore(modelsdev.EmbeddedSnapshot())
+	// https://developers.openai.com/api/docs/pricing: USD per million tokens.
+	for _, tc := range []struct {
+		name, provider, model, tier string
+		short, long                 modelsdev.Rates
+	}{
+		{"Luna standard", "openai", "gpt-5.6-luna", "default", modelsdev.Rates{Input: 0.2, CacheRead: 0.02, CacheWrite: 0.25, Output: 1.2}, modelsdev.Rates{Input: 0.4, CacheRead: 0.04, CacheWrite: 0.5, Output: 1.8}},
+		{"Luna fast", "openai", "gpt-5.6-luna", "fast", modelsdev.Rates{Input: 0.4, CacheRead: 0.04, CacheWrite: 0.5, Output: 2.4}, modelsdev.Rates{Input: 0.8, CacheRead: 0.08, CacheWrite: 1, Output: 3.6}},
+		{"Luna priority", "openai", "gpt-5.6-luna", "priority", modelsdev.Rates{Input: 0.4, CacheRead: 0.04, CacheWrite: 0.5, Output: 2.4}, modelsdev.Rates{Input: 0.8, CacheRead: 0.08, CacheWrite: 1, Output: 3.6}},
+		{"Astra standard", "openai", "gpt-6-astra", "default", modelsdev.Rates{Input: 10, CacheRead: 1, CacheWrite: 12.5, Output: 50}, modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 75}},
+		{"Astra fast", "openai", "gpt-6-astra", "fast", modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 100}, modelsdev.Rates{Input: 40, CacheRead: 4, CacheWrite: 50, Output: 150}},
+		{"Astra priority", "openai", "gpt-6-astra", "priority", modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 100}, modelsdev.Rates{Input: 40, CacheRead: 4, CacheWrite: 50, Output: 150}},
+		{"Astra ultrafast", "openai", "gpt-6-astra", "ultrafast", modelsdev.Rates{Input: 60, CacheRead: 6, CacheWrite: 75, Output: 300}, modelsdev.Rates{Input: 120, CacheRead: 12, CacheWrite: 150, Output: 450}},
+		{"gateway Astra", "vercel", "openai/gpt-6-astra", "default", modelsdev.Rates{Input: 10, CacheRead: 1, CacheWrite: 12.5, Output: 50}, modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 75}},
+		{"gateway Astra fast", "vercel", "openai/gpt-6-astra-fast", "fast", modelsdev.Rates{Input: 20, CacheRead: 2, CacheWrite: 25, Output: 100}, modelsdev.Rates{Input: 40, CacheRead: 4, CacheWrite: 50, Output: 150}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			id := modelsdev.NewID(tc.provider, tc.model)
+			model, err := store.GetModel(t.Context(), id)
+			require.NoError(t, err)
+			for _, prompt := range []int64{271_999, 272_000, 272_001, 272_002} {
+				for _, bucket := range []string{"fresh", "read", "write"} {
+					usage := &chat.Usage{InputTokens: 72_000, CachedInputTokens: 100_000, CacheWriteTokens: 100_000, OutputTokens: 10_000, ReasoningTokens: 9_000, ServiceTier: tc.tier}
+					switch bucket {
+					case "fresh":
+						usage.InputTokens += prompt - 272_000
+					case "read":
+						usage.CachedInputTokens += prompt - 272_000
+					case "write":
+						usage.CacheWriteTokens += prompt - 272_000
+					}
+					rates := tc.short
+					if prompt > 272_000 {
+						rates = tc.long
+					}
+					want := (float64(usage.InputTokens)*rates.Input + float64(usage.CachedInputTokens)*rates.CacheRead + float64(usage.CacheWriteTokens)*rates.CacheWrite + 10_000*rates.Output) / 1e6
+					got := computeMessageCost(usage, applyModelCost(model, id, usage, base.Config{}))
+					require.NotNil(t, got)
+					assert.InDelta(t, want, *got, 1e-9, "prompt=%d, varying %s tokens", prompt, bucket)
+				}
+			}
 		})
 	}
 }
