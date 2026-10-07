@@ -132,7 +132,8 @@ policy, tracing, storage and cleanup. In particular, callers own the supplied
 session store, and a shared team's toolsets must outlive all its runtimes.
 
 The CLI uses this helper for both its initial runtime and TUI-spawned runtimes.
-Serving adapters retain their existing wiring and budget behavior.
+The HTTP API wires the same manifest budgets into its native runtimes; other
+serving adapters retain their existing wiring and budget behavior.
 
 ## Headless Embedded Chat (`pkg/embeddedchat`)
 

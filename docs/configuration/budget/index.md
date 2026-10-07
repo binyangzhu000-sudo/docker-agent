@@ -89,6 +89,16 @@ Spend accumulates for the life of the **session**, across every message you send
 
 Starting a new session starts a fresh budget. It is a per-session ceiling, not a lifetime quota across sessions.
 
+The native runtime in `docker agent serve api` enforces both run-wide and named
+budgets across requests while that session's runtime remains loaded. Agent
+switches and delegated sub-sessions share the configured wallets; unrelated
+sessions have independent allowances.
+
+Budget counters are in-memory, not persistent quotas. Restarting the API server
+or otherwise reconstructing a runtime starts fresh counters, even when resuming
+stored conversation history and cost totals. External `harness:` execution does
+not use the native budget-enforcement loop.
+
 > [!NOTE]
 > `max_time` measures the time the agents actually spend **working** — the sum of their turn durations — not wall-clock since the session opened. Because a budget spans a session, and a session sits idle while you read and type, wall-clock would let a budget expire during a coffee break: leave the TUI open for ten minutes and your next message would instantly trip a `max_time` of `2m` without the agent having done anything.
 

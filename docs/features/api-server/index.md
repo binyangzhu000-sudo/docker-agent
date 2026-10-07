@@ -114,6 +114,19 @@ curl -N -X POST http://localhost:8080/api/sessions/$SID/agent/team/reviewer \
   -d '{"messages":[{"role": "user", "content": "Review this PR"}]}'
 ```
 
+### Execution budgets
+
+API-created native runtimes honor the manifest's `budget` and agent-selected
+`budgets`. Consumption accumulates across requests and delegated work in the
+same live runtime. Streams report `budget_usage` and `budget_exceeded`; once a
+wallet is exhausted, further model calls charged to it stop without a
+continuation prompt. Configurations without budgets remain unlimited.
+
+Counters reset when the runtime is reconstructed, including after a server
+restart. Stored transcript usage and cost totals are retained but do not seed
+the new wallet. This is an execution limit, not a persistent quota, and does not
+apply to external `harness:` execution. See [Budget](../../configuration/budget/index.md).
+
 ### Health
 
 | Method | Path        | Description                               |

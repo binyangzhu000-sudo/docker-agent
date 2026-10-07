@@ -21,7 +21,6 @@ import (
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
-	"github.com/docker/docker-agent/pkg/teamloader"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -89,7 +88,7 @@ type apiRuntimeProviderRequest struct {
 func newAPIRuntimeConfig(t *testing.T) (*config.RuntimeConfig, <-chan apiRuntimeProviderRequest) {
 	t.Helper()
 
-	requests := make(chan apiRuntimeProviderRequest, 4)
+	requests := make(chan apiRuntimeProviderRequest, 16)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json")
@@ -111,7 +110,9 @@ func newAPIRuntimeConfig(t *testing.T) (*config.RuntimeConfig, <-chan apiRuntime
 		}
 		select {
 		case requests <- apiRuntimeProviderRequest{r.Header.Get("Authorization"), body.Model, body.Temperature, body.MaxTokens}:
-		case <-r.Context().Done():
+		default:
+			t.Error("unexpected provider request overflow")
+			http.Error(w, "request recorder overflow", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -349,71 +350,61 @@ func TestAPIRuntimeConfig_SelectedAgentSessionDefaultsAndWorkingDir(t *testing.T
 	}
 }
 
-func TestAPIRuntimeConfig_CurrentlyOmitsManifestRunAndNamedBudgets(t *testing.T) {
+func TestAPIRuntimeConfig_EnforcesManifestBudgets(t *testing.T) {
 	t.Parallel()
-
-	// TODO: invert this baseline when API assembly forwards manifest budgets.
-	const budgetYAML = `agents:
-  root:
-    model: offline
-    instruction: Reply briefly.
-    budgets: [shared]
-models:
-  offline:
-    provider: openai
-    model: gpt-4o
-    base_url: %s/v1
-    provider_opts:
-      api_type: openai_chatcompletions
-budget:
-  max_cost: 0.0001
-  max_tokens: 1
-budgets:
-  shared:
-    max_cost: 0.0001
-    max_tokens: 1
-`
-	rc, requests := newAPIRuntimeConfig(t)
-	sm := newAPIRuntimeConfigManager(t, rc, fmt.Sprintf(budgetYAML, rc.ModelsGateway))
-	loaded, err := sm.loadTeamWithConfig(t.Context(), "agent.yaml", rc, teamloader.WithWorkingDir(rc.WorkingDir))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, loaded.Team.StopToolSets(context.WithoutCancel(t.Context()))) })
-	require.NotNil(t, loaded.Budget)
-	assert.Equal(t, int64(1), loaded.Budget.MaxTokens)
-	assert.InDelta(t, 0.0001, loaded.Budget.MaxCost, 1e-9)
-	require.Contains(t, loaded.Budgets, "shared")
-	assert.Equal(t, *loaded.Budget, loaded.Budgets["shared"])
-	assert.Equal(t, []string{"shared"}, loaded.AgentBudgets["root"])
-
-	sess, err := sm.CreateSession(t.Context(), session.New(session.WithTitle("Budget baseline")))
-	require.NoError(t, err)
-	run, tm := newAPIRuntimeForSession(t, sm, sess, "root")
-	agentConfig, ok := tm.AgentConfig("root")
-	require.True(t, ok)
-	assert.Equal(t, []string{"shared"}, agentConfig.Budgets)
-
-	var budgetEvents, usageEvents int
-	for range 2 {
-		sess.AddMessage(session.UserMessage("Reply offline"))
-		for event := range run.RunStream(t.Context(), sess) {
-			switch e := event.(type) {
-			case *runtime.BudgetUsageEvent, *runtime.BudgetExceededEvent:
-				budgetEvents++
-			case *runtime.TokenUsageEvent:
-				usageEvents++
-			case *runtime.ErrorEvent:
-				t.Errorf("runtime error: %s", e.Error)
+	for _, tc := range []struct {
+		name      string
+		limits    string
+		wantNames []string
+		stoppedBy string
+		limit     string
+	}{
+		{"unbudgeted", "", nil, "", ""},
+		{"run tokens", "budget:\n  max_tokens: 1\n", []string{"run"}, "run", "max_tokens"},
+		{"run cost", "budget:\n  max_cost: 0.0001\n", []string{"run"}, "run", "max_cost"},
+		{"named tokens", "budgets:\n  shared:\n    max_tokens: 1\n", []string{"shared"}, "shared", "max_tokens"},
+		{"named cost", "budgets:\n  shared:\n    max_cost: 0.0001\n", []string{"shared"}, "shared", "max_cost"},
+		{"both", "budget:\n  max_tokens: 1\nbudgets:\n  shared:\n    max_tokens: 1\n", []string{"run", "shared"}, "run", "max_tokens"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rc, requests := newAPIRuntimeConfig(t)
+			agentsYAML := "agents:\n  root:\n    model: offline\n    instruction: Reply briefly.\n"
+			if slices.Contains(tc.wantNames, "shared") {
+				agentsYAML += "    budgets: [shared]\n"
 			}
-		}
+			sm := newAPIRuntimeConfigManager(t, rc, agentsYAML+fmt.Sprintf(apiBudgetModelsYAML, rc.ModelsGateway)+tc.limits)
+			cleanupAPIBudgetRuntimes(t, sm)
+			sess, err := sm.CreateSession(t.Context(), session.New(session.WithTitle("Budget enforcement")))
+			require.NoError(t, err)
+			first := runAPIBudgetTurn(t, sm, sess.ID, "root")
+			if tc.stoppedBy == "" {
+				second := runAPIBudgetTurn(t, sm, sess.ID, "root")
+				assert.Len(t, requests, 2, "configs without budgets must remain unlimited")
+				for _, event := range append(first, second...) {
+					switch event.(type) {
+					case *runtime.BudgetUsageEvent, *runtime.BudgetExceededEvent:
+						t.Errorf("unbudgeted session emitted a budget event: %T", event)
+					}
+				}
+				return
+			}
+			usage := lastAPIBudgetUsage(t, first)
+			require.Len(t, usage.Budgets, len(tc.wantNames))
+			for i, wallet := range usage.Budgets {
+				assert.Equal(t, tc.wantNames[i], wallet.Name)
+				assert.Equal(t, int64(150), wallet.Tokens)
+				assert.InDelta(t, 0.0006, wallet.Cost, 1e-9)
+				assert.False(t, wallet.Unpriced)
+			}
+			second := runAPIBudgetTurn(t, sm, sess.ID, "root")
+			requireAPIBudgetStop(t, second, "root", tc.stoppedBy, tc.limit)
+			assert.Equal(t, usage.Budgets, lastAPIBudgetUsage(t, second).Budgets,
+				"a blocked turn must retain the same wallet without further spend")
+			assert.Len(t, requests, 1, "exhausted budgets must block the next model call")
+			stored, err := sm.GetSession(t.Context(), sess.ID)
+			require.NoError(t, err)
+			assert.InDelta(t, 0.0006, stored.TotalCost(), 1e-9)
+		})
 	}
-	assert.Zero(t, budgetEvents, "CURRENT API behavior: loaded budgets are not installed on the runtime")
-	assert.Positive(t, usageEvents, "native execution must account for the provider's nonzero usage")
-	assert.Len(t, requests, 2, "even a second turn runs after exceeding both declared budgets")
-	inputTokens, outputTokens := sess.Usage()
-	assert.Greater(t, inputTokens+outputTokens, loaded.Budget.MaxTokens)
-	assert.InDelta(t, 0.0012, sess.TotalCost(), 1e-9)
-	messages := sess.GetAllMessages()
-	require.Len(t, messages, 4)
-	assert.Equal(t, "Offline reply", messages[1].Message.Content)
-	assert.Equal(t, "Offline reply", messages[3].Message.Content)
 }
