@@ -3,6 +3,57 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.149.0] - 2026-10-07
+
+This release adds GitHub repository skill loading, evaluator routing through the models gateway, and several model pricing and capability fixes, along with TUI stability improvements and expanded debug tool hook support.
+
+## What's New
+
+- Adds support for loading skills from public GitHub repositories via `https://github.com/owner/repo` URLs in `skills:` entries
+- Runs `tool_input_transform` and `post_tool_use` hooks on debug tool calls, completing the full hook pipeline for `docker agent debug tool`
+- Adds an evaluator judge backend, enabling a dedicated evaluator service as an alternative to the LLM-as-judge path
+- Routes evaluators through the models gateway by default and adds OpenAI Decisions as a native evaluator backend
+- Prices OpenAI `fast`, `priority`, and `ultrafast` service tiers based on the tier actually served in the response rather than the requested tier
+- Adds a Nativ provider guide covering setup, authentication, and API support for the local Apple Silicon inference server
+
+## Bug Fixes
+
+- Fixes ChatGPT models incorrectly treated as text-only by inferring image input capability from the matching OpenAI catalogue entry when no direct ChatGPT entry exists
+- Fixes provider IDs (`fireworks-ai`, `togetherai`, `moonshotai`, `opencode`) to align with canonical models.dev catalogue IDs, preserving legacy IDs as aliases
+- Fixes custom and gateway provider filters being dropped when resolving model providers
+- Fixes fast/priority and ultrafast service-tier cost multipliers falling back to standard rates when `base_url` is explicitly set to the official OpenAI endpoint
+- Fixes redundant full re-renders triggered by token usage events when the sidebar is hidden in the TUI
+- Fixes the lean TUI working indicator to remain above the input with a permanent separator, replacing inline spinners with static markers to avoid redraws on every tick
+
+## Technical Changes
+
+- Separates loader defaults from runtime registration so building loader options no longer mutates process-wide runtime state as a side effect
+- Centralizes loaded runtime configuration assembly and narrows the `chatserver` runtime contract
+- Runs `tool_response_transform` hooks on debug tool output (previously missing from the debug tool path)
+- Updates documentation for the defuse loop termination argument to reflect the correct invariant
+- Stabilizes the debug-tool test on Windows by removing a flaky native shell dependency from the affected test case
+### Pull Requests
+
+- [#4372](https://github.com/docker/docker-agent/pull/4372) - docs(attachment): state the real termination argument for the defuse loop
+- [#4510](https://github.com/docker/docker-agent/pull/4510) - chore(deps): bump the actions group across 1 directory with 4 updates
+- [#4518](https://github.com/docker/docker-agent/pull/4518) - feat: run tool_input_transform and post_tool_use hooks on debug tool calls
+- [#4519](https://github.com/docker/docker-agent/pull/4519) - docs: update CHANGELOG.md for v1.148.0
+- [#4523](https://github.com/docker/docker-agent/pull/4523) - fix(tui): avoid redundant frames for hidden-sidebar usage updates
+- [#4524](https://github.com/docker/docker-agent/pull/4524) - fix: stabilize debug-tool test against windows shell flake
+- [#4525](https://github.com/docker/docker-agent/pull/4525) - feat(skills): load skills from public GitHub repositories
+- [#4526](https://github.com/docker/docker-agent/pull/4526) - test(runtime): isolate client fixtures on private HTTP transports
+- [#4527](https://github.com/docker/docker-agent/pull/4527) - test(eval): avoid writing executable runtimes during parallel tests
+- [#4528](https://github.com/docker/docker-agent/pull/4528) - fix(chatgpt): infer image input from OpenAI catalogue
+- [#4530](https://github.com/docker/docker-agent/pull/4530) - fix(models): align provider IDs with the catalogue
+- [#4531](https://github.com/docker/docker-agent/pull/4531) - feat(eval): add evaluator judge backend
+- [#4532](https://github.com/docker/docker-agent/pull/4532) - feat: price OpenAI fast/priority and ultrafast by actual service tier
+- [#4533](https://github.com/docker/docker-agent/pull/4533) - refactor: separate loader defaults, bootstrap runtime opts, narrow chatserver contract
+- [#4534](https://github.com/docker/docker-agent/pull/4534) - docs: add Nativ provider guide
+- [#4536](https://github.com/docker/docker-agent/pull/4536) - fix: honor configured OpenAI base_url when pricing fast tiers
+- [#4537](https://github.com/docker/docker-agent/pull/4537) - feat: route evaluators through the models gateway, add OpenAI Decisions
+- [#4538](https://github.com/docker/docker-agent/pull/4538) - fix: keep lean TUI working indicator above the input
+
+
 ## [v1.148.0] - 2026-10-05
 
 This release fixes two issues: oversized tool output handling and duplicate line rendering in the lean TUI.
@@ -6812,3 +6863,5 @@ This release improves the terminal user interface with better error handling and
 [v1.147.0]: https://github.com/docker/docker-agent/releases/tag/v1.147.0
 
 [v1.148.0]: https://github.com/docker/docker-agent/releases/tag/v1.148.0
+
+[v1.149.0]: https://github.com/docker/docker-agent/releases/tag/v1.149.0
