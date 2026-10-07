@@ -236,6 +236,7 @@ type model struct {
 	banner           []string
 	disabledCommands map[string]bool
 	renderImages     bool
+	imageSupport     bool
 	sendMode         messages.SendMode
 	settings         *leanSettings
 	// hideBanner drops the ASCII-art welcome banner; the zero value keeps it.
@@ -277,6 +278,7 @@ func newModel(term *ui.Terminal, cfg Config) *model {
 		banner:           cfg.Banner,
 		disabledCommands: disabled,
 		renderImages:     renderImages,
+		imageSupport:     renderImages,
 		sendMode:         messages.ParseSendMode(userconfig.Get().GetBusySendMode()),
 		hideBanner:       cfg.ShowBanner != nil && !*cfg.ShowBanner,
 	}

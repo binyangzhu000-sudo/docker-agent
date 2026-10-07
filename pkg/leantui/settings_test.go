@@ -210,3 +210,23 @@ func TestFailureSound(t *testing.T) {
 	m.handleEvent(t.Context(), &runtime.ErrorEvent{Error: "failed"})
 	assert.Len(t, played, 1)
 }
+
+func TestSettingsImageToggleNeverReadsLiveInput(t *testing.T) {
+	setupLeanSettingsTest(t)
+	for _, supported := range []bool{false, true} {
+		m := bareModel(80)
+		m.imageSupport = supported
+		require.NoError(t, userconfig.Update(func(cfg *userconfig.Config) error {
+			cfg.Settings = &userconfig.Settings{RenderImages: new(false)}
+			return nil
+		}))
+		m.openSettings()
+		m.screen.Settings.Selected = settingRenderImages
+		m.handleSettingsKey(ui.Key{Typ: ui.KeyRight})
+		m.handleSettingsKey(ui.Key{Typ: ui.KeyEnter})
+		assert.Equal(t, supported, m.renderImages, "only confirmed startup support can enable graphics")
+		assert.True(t, userconfig.Get().GetRenderImages())
+		m.openSettings()
+		assert.True(t, m.settings.values[settingRenderImages], "the panel must show the persisted preference")
+	}
+}

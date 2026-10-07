@@ -2,10 +2,8 @@ package leantui
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/docker/docker-agent/pkg/leantui/ui"
-	tuiimage "github.com/docker/docker-agent/pkg/tui/image"
 	"github.com/docker/docker-agent/pkg/tui/messages"
 	"github.com/docker/docker-agent/pkg/userconfig"
 )
@@ -42,7 +40,7 @@ func (m *model) openSettings() {
 		settingWarnOnCacheMiss:    s.CacheMissWarningsEnabled(),
 		settingLean:               s.Lean,
 		settingSound:              s.GetSound(),
-		settingRenderImages:       m.renderImages,
+		settingRenderImages:       s.GetRenderImages(),
 		settingShowBanner:         !m.hideBanner,
 		settingSplitDiff:          m.sessionState.SplitDiffView(),
 	}
@@ -62,7 +60,7 @@ func (m *model) refreshSettingsRows() {
 		"Lean UI by default (next launch)",
 		"Completion sound",
 		"Sound threshold",
-		"Render images",
+		"Render images (next launch if not detected)",
 		"Show startup banner (next launch)",
 		"Split diff view",
 	}
@@ -126,7 +124,7 @@ func (m *model) handleSettingsKey(k ui.Key) {
 				m.sendMode = messages.SendModeQueue
 			}
 			if m.settings.values[settingRenderImages] != m.settings.original[settingRenderImages] {
-				m.renderImages = m.settings.values[settingRenderImages] && tuiimage.SupportsKittyGraphics(os.Stdin, os.Stdout)
+				m.renderImages = m.settings.values[settingRenderImages] && m.imageSupport
 			}
 			m.hideBanner = !m.settings.values[settingShowBanner]
 			m.sessionState.SetSplitDiffView(m.settings.values[settingSplitDiff])

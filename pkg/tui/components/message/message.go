@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/tui/components/spinner"
 	"github.com/docker/docker-agent/pkg/tui/core/layout"
 	tuiimage "github.com/docker/docker-agent/pkg/tui/image"
+	"github.com/docker/docker-agent/pkg/tui/messages"
 	"github.com/docker/docker-agent/pkg/tui/styles"
 	"github.com/docker/docker-agent/pkg/tui/types"
 )
@@ -305,6 +306,10 @@ func (mv *messageModel) SetHovered(hovered bool) {
 
 // Update handles messages and updates the message view state
 func (mv *messageModel) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	if _, ok := msg.(messages.ImageRenderingChangedMsg); ok {
+		mv.renderCache.valid = false
+		return mv, nil
+	}
 	if loaded, ok := msg.(markdownImagesLoadedMsg); ok && loaded.target == mv {
 		// Unmark failed URLs so a later SetMessage can retry them.
 		for _, ref := range loaded.requested {

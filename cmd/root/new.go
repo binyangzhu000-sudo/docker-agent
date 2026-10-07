@@ -141,8 +141,8 @@ func runTUIWrapped(ctx context.Context, rt runtime.Runtime, sess *session.Sessio
 		wd, _ = os.Getwd()
 	}
 	imageWriter := tuiimage.NewWriter(os.Stdout)
-	imageWriter.SetSupported(tuiimage.SupportsKittyGraphics(os.Stdin, os.Stdout))
 	imageWriter.SetEnabled(userconfig.Get().GetRenderImages())
+	imageWriter.SetSupported(imageWriter.Enabled() && tuiimage.SupportsKittyGraphics(os.Stdin, os.Stdout))
 	tuiimage.SetRenderingEnabled(imageWriter.RenderingEnabled())
 	tuiOpts = append(tuiOpts, tui.WithImageWriter(imageWriter))
 	model := tui.New(ctx, spawner, a, wd, cleanup, tuiOpts...)
