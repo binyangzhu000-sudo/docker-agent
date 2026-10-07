@@ -105,9 +105,9 @@ Key conventions:
 ## Lint rules
 
 `task lint` runs the shared and project-specific cops selected in `lint/main.go`.
-Reusable checks come from [rubocop-go v1.0.0](https://github.com/dgageot/rubocop-go/blob/v1.0.0/docs/shared-cops.md);
-project-specific checks and frozen-config exclusions stay in `lint/`. Cop IDs
-and `//rubocop:disable` annotations are unchanged. Add shared checks by their
+Reusable checks come from [rubocop-go](https://github.com/dgageot/rubocop-go/blob/92be797454c8ebde41b9f1eb084be3535cfef668/docs/shared-cops.md)
+(pinned in `go.mod`); project-specific checks and frozen-config exclusions stay
+in `lint/`. Cop IDs and `//rubocop:disable` annotations are unchanged. Add shared checks by their
 constructors, not by enabling the entire upstream catalog.
 
 `Lint/FieldsSeq` flags
@@ -117,11 +117,20 @@ the original location, and track whether any word was yielded when preserving
 that fallback. Indexing, repeated traversal, capacity/count uses, mutable byte
 inputs, and `FieldsFunc` callbacks are intentionally excluded.
 
-The custom `Lint/FieldsSeqLookup` complements it by flagging guarded first-field
+`Lint/FieldsSeqLookup` complements it by flagging guarded first-field
 reads and `slices.Contains(strings.Fields(...), ...)`. Stop iteration once the
 first field or match is found. Preserve empty-input fallbacks, and evaluate the
 input and membership search value once, in their original order, before iterating.
 Unguarded indexing, other slice uses, and exact field-count checks are excluded.
+
+`Lint/ConstructorCommandExec` flags command setup and resolved `exec.Cmd`
+execution methods in constructors, including aliased imports and typed test
+packages. Unrelated methods
+named `Run` or `Start` are excluded. Move process work to an explicit operation.
+
+`Lint/NoStdoutInLibraries` checks non-main production packages under `pkg/` for
+`fmt.Print*` and `fmt.Fprint*` calls targeting `os.Stdout`; use a caller-provided
+writer instead. CLI packages and tests remain exempt.
 
 `Lint/SortStableFunc` recommends `slices.SortStableFunc` with `cmp.Compare`
 for reflection-based `sort.SliceStable` calls comparing integer or string keys,
