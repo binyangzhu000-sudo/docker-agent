@@ -149,6 +149,9 @@ const LongRunningThreshold = 60 * time.Second
 func Icon(msg *types.Message, inProgress spinner.Spinner) string {
 	switch msg.ToolStatus {
 	case types.ToolStatusRunning, types.ToolStatusPending:
+		if msg.HideToolProgress {
+			return styles.ToolPendingIcon.Render("●")
+		}
 		// Animated spinner for both executing and streaming tool calls.
 		// With centralized animation ticks, all spinners share a single tick
 		// so there's no performance penalty for multiple animated spinners.

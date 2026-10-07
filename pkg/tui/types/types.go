@@ -80,16 +80,17 @@ type AssistantMedia struct {
 
 // Message represents a single message in the chat
 type Message struct {
-	SessionID      string
-	MessageID      string
-	Type           MessageType
-	Content        string
-	Sender         string                // Agent name for assistant messages
-	ToolCall       tools.ToolCall        // Associated tool call for tool messages
-	ToolDefinition tools.Tool            // Definition of the tool being called
-	ToolStatus     ToolStatus            // Status for tool calls
-	ToolResult     *tools.ToolCallResult // Result of tool call (when completed)
-	Images         []tuiimage.Inline     // Prepared terminal images from the result
+	SessionID        string
+	MessageID        string
+	Type             MessageType
+	Content          string
+	Sender           string                // Agent name for assistant messages
+	ToolCall         tools.ToolCall        // Associated tool call for tool messages
+	ToolDefinition   tools.Tool            // Definition of the tool being called
+	ToolStatus       ToolStatus            // Status for tool calls
+	HideToolProgress bool                  // Suppress inline spinner and elapsed time in the lean TUI.
+	ToolResult       *tools.ToolCallResult // Result of tool call (when completed)
+	Images           []tuiimage.Inline     // Prepared terminal images from the result
 	// AssistantMedia holds generated media rendered as part of an assistant
 	// turn, after the message's text content.
 	AssistantMedia []AssistantMedia

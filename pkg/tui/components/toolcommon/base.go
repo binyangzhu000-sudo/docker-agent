@@ -183,8 +183,8 @@ func (b *Base) StopAnimation() {
 }
 
 func (b *Base) isSpinnerActive() bool {
-	return b.message.ToolStatus == types.ToolStatusPending ||
-		b.message.ToolStatus == types.ToolStatusRunning
+	return !b.message.HideToolProgress && (b.message.ToolStatus == types.ToolStatusPending ||
+		b.message.ToolStatus == types.ToolStatusRunning)
 }
 
 // NoArgsRenderer is a Renderer that displays only the tool name and status,
