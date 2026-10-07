@@ -83,7 +83,9 @@ func RenderToolWithState(t *ToolView, width, frame int, sessionState service.Ses
 	if t.renderers == nil {
 		t.renderers = tooldefaults.NewRegistry()
 	}
-	view := t.renderers.New(ar, t.message, sessionState)
+	msg := *t.message
+	msg.HideToolProgress = true
+	view := t.renderers.New(ar, &msg, sessionState)
 	view.SetSize(innerWidth, 0)
 	if t.message.ToolStatus == tuitypes.ToolStatusPending || t.message.ToolStatus == tuitypes.ToolStatusRunning {
 		defer animation.StopView(view)

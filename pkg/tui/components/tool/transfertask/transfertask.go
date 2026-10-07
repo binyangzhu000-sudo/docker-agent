@@ -71,6 +71,9 @@ func render(msg *types.Message, s spinner.Spinner, sessionState service.SessionS
 func statusIcon(msg *types.Message, s spinner.Spinner) string {
 	switch msg.ToolStatus {
 	case types.ToolStatusRunning, types.ToolStatusPending, types.ToolStatusConfirmation:
+		if msg.HideToolProgress {
+			return styles.ToolPendingIcon.Render("●")
+		}
 		return styles.NoStyle.MarginLeft(2).Render(s.View())
 	case types.ToolStatusCompleted:
 		return styles.ToolCompletedIcon.Render("✓")

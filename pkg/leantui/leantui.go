@@ -269,7 +269,7 @@ func newModel(term *ui.Terminal, cfg Config) *model {
 		r:                ui.NewRenderer(term.Writer(), w, h),
 		width:            w,
 		height:           h,
-		screen:           ui.NewScreen(cfg.WorkingDir, branch, "Type a message, / for commands", cfg.History),
+		screen:           ui.NewScreen(cfg.WorkingDir, branch, "", cfg.History),
 		status:           ui.StatusModel{WorkingDir: cfg.WorkingDir, Branch: branch},
 		sessionState:     sessionState,
 		usage:            ui.NewUsageTracker(),

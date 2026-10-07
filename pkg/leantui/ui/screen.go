@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/docker/docker-agent/pkg/history"
 	"github.com/docker/docker-agent/pkg/tui/service"
 )
@@ -29,6 +31,7 @@ func (s *Screen) Frame(width, _, spinnerFrame int, busy bool, sessionState servi
 	lines = s.Transcript.Lines(width, spinnerFrame, busy, sessionState, pendingUsers)
 
 	lines = append(lines, s.Autocomplete.Render(width)...)
+	lines = append(lines, renderInputSeparator(width, spinnerFrame, busy))
 
 	inputStart := len(lines)
 	switch {
@@ -54,6 +57,16 @@ func (s *Screen) Frame(width, _, spinnerFrame int, busy bool, sessionState servi
 	lines = append(lines, RenderStatus(s.Status, width)...)
 
 	return lines, cursorLine, cursorCol
+}
+
+func renderInputSeparator(width, spinnerFrame int, busy bool) string {
+	width = max(width, 0)
+	if !busy {
+		return StMuted().Render(strings.Repeat("─", width))
+	}
+
+	label := StMuted().Render("── ") + spinnerLine(spinnerFrame) + " "
+	return Truncate(label+StMuted().Render(strings.Repeat("─", max(width-DisplayWidth(label), 0))), width)
 }
 
 // ConfirmModel holds a pending tool-approval prompt.

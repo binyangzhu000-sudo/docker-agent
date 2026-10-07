@@ -224,9 +224,8 @@ func (t *Transcript) FinalizeTools(status tuitypes.ToolStatus, sessionState serv
 
 // Lines renders everything that scrolls: finalized blocks, the in-progress
 // streamed block, running tool calls, and user messages waiting to be accepted
-// by the runtime. A blank line separates each entry. The spinner is shown only
-// while busy with nothing yet streaming.
-func (t *Transcript) Lines(width, spinnerFrame int, busy bool, sessionState service.SessionStateReader, pendingUsers []PendingUserMessage) []string {
+// by the runtime. A blank line separates each entry.
+func (t *Transcript) Lines(width, spinnerFrame int, _ bool, sessionState service.SessionStateReader, pendingUsers []PendingUserMessage) []string {
 	var lines []string
 	for _, b := range t.blocks {
 		lines = append(lines, b.lines(width)...)
@@ -242,9 +241,6 @@ func (t *Transcript) Lines(width, spinnerFrame int, busy bool, sessionState serv
 		lines = append(lines, "")
 	})
 	t.liveToolRows[1] = len(lines)
-	if busy && t.pending == nil && t.toolz.Empty() {
-		lines = append(lines, spinnerLine(spinnerFrame), "")
-	}
 	for _, msg := range pendingUsers {
 		lines = append(lines, RenderPendingUserLines(msg, width)...)
 		lines = append(lines, "")
