@@ -139,6 +139,16 @@ agents:
       model: o4-mini     # optional model override
 ```
 
+Codex runs through its documented `codex exec --json` interface. A successful
+turn must emit `turn.completed`; `turn.failed`, malformed JSON, and incomplete
+streams are reported as errors. Reconnection warnings alone do not fail a turn.
+Each JSON event may contain up to 16 MiB; larger events are rejected without
+waiting for the CLI to finish writing them.
+
+A thread ID reported during a failed or canceled first turn is retained for
+follow-up turns. Docker Agent does not automatically retry a failed turn:
+the CLI may already have changed files or run commands.
+
 ### opencode
 
 ```yaml
