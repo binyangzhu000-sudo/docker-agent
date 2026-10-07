@@ -199,6 +199,8 @@
       url: /providers/mistral/
     - title: Moonshot AI
       url: /providers/moonshot/
+    - title: Nativ
+      url: /providers/nativ/
     - title: Nebius
       url: /providers/nebius/
     - title: NVIDIA
