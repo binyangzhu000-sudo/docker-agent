@@ -29,7 +29,7 @@ func NewProvider(cfg *latest.HarnessConfig) (baseharness.Provider, error) {
 	case TypeClaudeCode:
 		return newClaudeCodeProvider(cfg), nil
 	case TypeCodex:
-		return codex.New(cfg.Model), nil
+		return codexProvider{Provider: codex.New(cfg.Model)}, nil
 	case TypePi:
 		return pi.New(cfg.Model), nil
 	case TypeOpenCode:
