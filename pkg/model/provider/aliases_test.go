@@ -127,9 +127,10 @@ func TestProviderIDsMatchEmbeddedCatalog(t *testing.T) {
 	t.Parallel()
 	db := modelsdev.EmbeddedSnapshot()
 	absent := map[string]string{
-		"chatgpt": "subscription backend, distinct from OpenAI",
-		"dmr":     "local Docker Model Runner",
-		"ollama":  "local Ollama server",
+		"atlascloud": "model IDs come from Atlas Cloud's /v1/models endpoint, not models.dev",
+		"chatgpt":    "subscription backend, distinct from OpenAI",
+		"dmr":        "local Docker Model Runner",
+		"ollama":     "local Ollama server",
 	}
 	for _, name := range AllProviders() {
 		t.Run(name, func(t *testing.T) {
