@@ -57,10 +57,10 @@ func TestCodexTurnOutcomes(t *testing.T) {
 		{name: "success", output: codexCompleted},
 		{name: "reconnected", output: `{"type":"error","message":"Reconnecting... 1/5"}` + "\n" + codexCompleted},
 		{name: "unknown event", output: `{"type":"future.event","message":{"detail":"ok"},"error":[1,2]}` + "\n" + codexCompleted},
-		{name: "whitespace and unterminated line", output: "\n \t" + strings.TrimSpace(codexCompleted)},
-		{name: "failed with zero exit", output: `{"type":"turn.failed","error":{"message":"quota exceeded"}}` + "\n", want: "quota exceeded"},
-		{name: "failed with nonzero exit", output: `{"type":"turn.failed","error":{"message":"quota exceeded"}}` + "\n", exit: 1, want: "quota exceeded"},
-		{name: "error then EOF", output: `{"type":"error","message":"connection lost"}` + "\n", want: "connection lost"},
+		{name: "whitespace and unterminated line", output: "\r\n \t" + strings.TrimSpace(codexCompleted)},
+		{name: "failed with zero exit", output: `{"type":"turn.failed","error":{"message":"quota exceeded"}}` + "\n", want: "codex turn failed"},
+		{name: "failed with nonzero exit", output: `{"type":"turn.failed","error":{"message":"quota exceeded"}}` + "\n", exit: 1, want: "codex turn failed"},
+		{name: "error then EOF", output: `{"type":"error","message":"connection lost"}` + "\n", want: "without turn.completed"},
 		{name: "missing terminal event", output: `{"type":"turn.started"}` + "\n", want: "without turn.completed"},
 		{name: "empty output", want: "without turn.completed"},
 		{name: "invalid JSON", output: "{broken\n" + codexCompleted, want: "invalid Codex JSON event"},
@@ -103,7 +103,7 @@ func TestCodexOversizedEventReturnsWithoutHanging(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	err = p.Run(ctx, "test", func(harness.Event) {})
-	require.ErrorContains(t, err, "codex JSON event exceeds")
+	require.ErrorContains(t, err, "stream line exceeds")
 	assert.NoError(t, ctx.Err(), "size rejection must not wait for the subprocess")
 }
 
@@ -155,55 +155,6 @@ func TestCodexSlowConsumer(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestCodexJSONWriterChunking(t *testing.T) {
-	t.Parallel()
-	p, err := NewProvider(&latest.HarnessConfig{Type: TypeCodex})
-	require.NoError(t, err)
-	var events []harness.Event
-	stream := &codexJSONWriter{provider: p, cancel: func() {}, handle: adapt(func(ev harness.Event) { events = append(events, ev) })}
-	text := strings.Repeat("界", 100)
-	output := `{"type":"item.completed","item":{"type":"agent_message","text":"` + text + `"}}` + "\r\n" + strings.TrimSpace(codexCompleted)
-	for _, b := range []byte(output) {
-		n, err := stream.Write([]byte{b})
-		require.NoError(t, err)
-		require.Equal(t, 1, n)
-	}
-	require.NoError(t, stream.finish())
-	require.True(t, stream.completed)
-	require.Len(t, events, 3)
-	assert.Equal(t, text, events[0].Text)
-	assert.Equal(t, 10, events[2].Usage.InputTokens)
-}
-
-func TestCodexDiagnosticCapture(t *testing.T) {
-	t.Parallel()
-	secret := "sk-or-v1-" + strings.Repeat("a", 64)
-	for _, tt := range []struct {
-		name      string
-		chunks    []string
-		truncated bool
-	}{
-		{name: "split secret", chunks: []string{"failure: " + secret[:15], secret[15:] + "\n"}},
-		{name: "truncated secret", chunks: []string{strings.Repeat("x", maxCodexDiagnosticBytes-15) + secret}, truncated: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			var stderr codexDiagnosticWriter
-			for _, data := range tt.chunks {
-				n, err := stderr.Write([]byte(data))
-				require.NoError(t, err)
-				assert.Equal(t, len(data), n)
-			}
-			diagnostic := codexDiagnostic(stderr.String())
-			assert.NotContains(t, diagnostic, "sk-or-v1-")
-			assert.LessOrEqual(t, len(diagnostic), maxCodexDiagnosticBytes)
-			if tt.truncated {
-				assert.Equal(t, "stderr exceeded diagnostic limit", diagnostic)
-			}
-		})
-	}
-}
-
 func TestCodexLargeToolOutput(t *testing.T) {
 	output := strings.Repeat("output\n", 20000)
 	item, err := json.Marshal(map[string]any{
@@ -227,13 +178,41 @@ func TestCodexLargeToolOutput(t *testing.T) {
 	assert.False(t, result.ToolError)
 }
 
-func TestCodexStderrFailure(t *testing.T) {
-	useCodexCLI(t, "", 0)
-	binary := filepath.Join(strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0], "codex")
-	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\necho 'authentication failed' >&2\nexit 1\n"), 0o700))
-	p, err := Factory(&latest.HarnessConfig{Type: TypeCodex})
-	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-	defer cancel()
-	require.ErrorContains(t, p.Run(ctx, "test", func(harness.Event) {}), "authentication failed")
+func TestCodexValidationPerInvocation(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		t.Run(strconv.FormatBool(resume), func(t *testing.T) {
+			useCodexCLI(t, codexCompleted, 0)
+			p, err := Factory(&latest.HarnessConfig{Type: TypeCodex})
+			require.NoError(t, err)
+			run := func(ctx context.Context) error {
+				if resume {
+					return p.Resume(ctx, "thread-id", "test", func(harness.Event) {})
+				}
+				return p.Run(ctx, "test", func(harness.Event) {})
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			require.NoError(t, run(ctx))
+			dir := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(`{"type":"turn.started"}`+"\n"), 0o600))
+			require.ErrorContains(t, run(ctx), "without turn.completed")
+		})
+	}
+}
+
+func TestCodexErrorsOmitStreamContents(t *testing.T) {
+	for _, output := range []string{
+		`{"type":"turn.failed","error":{"message":"private-output-marker"}}` + "\n",
+		`{"type":"error","message":"private-output-marker"}` + "\n",
+		`{"type":"private-output-marker` + "\n",
+	} {
+		useCodexCLI(t, output, 0)
+		p, err := Factory(&latest.HarnessConfig{Type: TypeCodex})
+		require.NoError(t, err)
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		err = p.Run(ctx, "test", func(harness.Event) {})
+		cancel()
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "private-output-marker")
+	}
 }

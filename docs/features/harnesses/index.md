@@ -143,7 +143,9 @@ Codex runs through its documented `codex exec --json` interface. A successful
 turn must emit `turn.completed`; `turn.failed`, malformed JSON, and incomplete
 streams are reported as errors. Reconnection warnings alone do not fail a turn.
 Each JSON event may contain up to 16 MiB; larger events are rejected without
-waiting for the CLI to finish writing them.
+waiting for the CLI to finish writing them. The CLI is launched directly,
+without a shell. Error messages omit stderr and raw stream contents to avoid
+exposing credentials or tool output.
 
 A thread ID reported during a failed or canceled first turn is retained for
 follow-up turns. Docker Agent does not automatically retry a failed turn:
